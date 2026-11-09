@@ -2,65 +2,167 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Magazzino</title>
-<script src="html5-qrcode.min.js"></script>
-<script src="xlsx.full.min.js"></script>
-<script src="tracciati.js"></script>
+<!-- aggiunta alla schermata Home: si apre a tutto schermo come un'app -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Magazzino">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon.png">
+<!-- defer: 1,3 MB di librerie servono solo per fotocamera e invio, non bloccano l'apertura -->
+<script src="html5-qrcode.min.js" defer></script>
+<script src="xlsx.full.min.js" defer></script>
+<script src="tracciati.js" defer></script>
 <style>
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 16px system-ui, sans-serif; background: #f2f3f5; color: #1c1d1f; }
-  header { background: #1f3a5f; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 18px; margin: 0; flex: 1; }
-  header button { background: none; border: 0; color: #fff; font-size: 22px; }
-  main { padding: 16px; max-width: 600px; margin: 0 auto; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .tile { aspect-ratio: 1; border: 0; border-radius: 16px; color: #fff; font-size: 18px; font-weight: 600;
-          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
-  .tile span { font-size: 40px; }
-  label { display: block; font-size: 13px; color: #555; margin: 10px 0 4px; }
-  input { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 10px; }
-  .row { display: flex; gap: 8px; }
-  .btn { padding: 12px 16px; font-size: 16px; border: 0; border-radius: 10px; background: #1f3a5f; color: #fff; }
-  .btn.full { width: 100%; margin-top: 14px; }
-  .btn.alt { background: #6b7280; }
-  .btn:disabled { opacity: .5; }
-  label.urg { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: #dc2626; margin: 14px 0 6px; }
-  label.urg input { width: 24px; height: 24px; }
-  #reader { margin-top: 12px; border-radius: 12px; overflow: hidden; }
-  .item { background: #fff; border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
-  .item.warn { border-left: 5px solid #d97706; }
-  .item.ko { border-left: 5px solid #dc2626; }
-  .item.ok { border-left: 5px solid #16a34a; }
-  .item b { display: block; }
-  .item small { color: #666; }
-  .item .ubi { font-weight: 700; color: #1f3a5f; margin-top: 4px; }
-  .item .foto { margin-top: 8px; padding: 8px 12px; font-size: 14px; }
-  .item .ubi span { font-weight: 400; font-size: 13px; color: #666; margin-left: 8px; text-decoration: underline; }
-  .qty { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-  .qty input { width: 90px; text-align: center; padding: 8px; }
-  .qty button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid #ccc; background: #fff; font-size: 20px; }
-  .qty .del { margin-left: auto; color: #dc2626; }
-  #msg { position: fixed; left: 16px; right: 16px; bottom: 16px; padding: 14px; border-radius: 12px; color: #fff;
-         background: #1c1d1f; display: none; text-align: center; }
+  :root {
+    --bg: #f2f2f7; --card: #fff; --label: #000; --sec: rgba(60,60,67,.6); --sep: rgba(60,60,67,.18);
+    --fill: rgba(120,120,128,.16); --tint: #007aff; --red: #ff3b30; --green: #34c759; --orange: #ff9500;
+    --bar: rgba(249,249,249,.85);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000; --card: #1c1c1e; --label: #fff; --sec: rgba(235,235,245,.6); --sep: rgba(84,84,88,.6);
+      --fill: rgba(120,120,128,.32); --tint: #0a84ff; --red: #ff453a; --green: #30d158; --orange: #ff9f0a;
+      --bar: rgba(22,22,24,.85);
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 17px/1.3 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--label);
+         -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:active:not(:disabled) { opacity: .55; }
+  svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  header { position: sticky; top: 0; z-index: 5; padding: env(safe-area-inset-top) 8px 0; min-height: 52px;
+           display: flex; align-items: center; background: var(--bar); border-bottom: .5px solid var(--sep);
+           -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; position: absolute; left: 0; right: 0; text-align: center; pointer-events: none; }
+  header.home { border-bottom: 0; background: var(--bg); }
+  header.home h1 { position: static; text-align: left; font-size: 34px; font-weight: 700; padding: 8px 8px 4px; }
+  #back { display: flex; align-items: center; gap: 2px; background: none; border: 0; color: var(--tint); padding: 8px 4px; position: relative; z-index: 1; }
+  #back svg { width: 24px; height: 24px; stroke-width: 2.5; }
+  main { padding: 12px 16px calc(110px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tile { background: var(--card); border: 0; border-radius: 16px; padding: 16px; min-height: 120px; text-align: left;
+          display: flex; flex-direction: column; justify-content: space-between; gap: 18px; font-weight: 600; }
+  .tile i { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; color: #fff; }
+  .tile i svg { width: 26px; height: 26px; }
+
+  .group { background: var(--card); border-radius: 12px; margin: 0 0 20px; overflow: hidden; }
+  .cell { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 4px 16px; position: relative; }
+  .cell + .cell::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--sep); }
+  .cell > span { flex: none; min-width: 92px; }
+  .cell > span.red { color: var(--red); font-weight: 600; flex: 1; }
+  .cell input:not(.switch) { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--label); padding: 10px 0; outline: none; }
+  .cell input::placeholder { color: var(--sec); }
+  .cell .icon { color: var(--tint); }
+  .note { font-size: 13px; color: var(--sec); margin: -14px 16px 20px; }
+  h2 { font-size: 13px; font-weight: 400; text-transform: uppercase; color: var(--sec); margin: 24px 16px 8px; }
+
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 50px; padding: 0 16px;
+         border: 0; border-radius: 12px; background: var(--tint); color: #fff; font-weight: 600; }
+  .btn.gray { background: var(--fill); color: var(--tint); }
+  .btn.small { min-height: 38px; width: auto; font-size: 15px; border-radius: 19px; padding: 0 14px; }
+  .btn:disabled { opacity: .4; }
+  .btn + .btn { margin-top: 10px; }
+  .link { background: none; border: 0; color: var(--tint); width: 100%; padding: 20px; }
+  .icon { background: none; border: 0; padding: 6px; display: grid; place-items: center; }
+
+  .switch { appearance: none; -webkit-appearance: none; width: 51px; height: 31px; border-radius: 16px; background: var(--fill);
+            position: relative; transition: background .2s; margin: 0; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+                   background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.15); transition: transform .2s; }
+  .switch:checked { background: var(--red); }
+  .switch:checked::after { transform: translateX(20px); }
+
+  .scan { background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 20px; }
+  #reader { border-radius: 10px; overflow: hidden; }
+  #reader:not(:empty) { margin-bottom: 12px; }
+  #reader video { display: block; }
+
+  .item { background: var(--card); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; position: relative; overflow: hidden; }
+  .item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+  .item.ok::before { background: var(--green); }
+  .item.warn::before { background: var(--orange); }
+  .item.ko::before { background: var(--red); }
+  .item .top { display: flex; align-items: flex-start; gap: 8px; }
+  .item .top > div { flex: 1; min-width: 0; }
+  .item b { display: block; font-weight: 600; word-break: break-word; }
+  .item small { display: block; font-size: 15px; color: var(--sec); margin-top: 2px; }
+  .item .del { color: var(--red); margin: -6px -8px 0 0; }
+  .ubi { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; border: 0; border-radius: 8px; padding: 6px 10px;
+         background: color-mix(in srgb, var(--tint) 12%, transparent); color: var(--tint); font-weight: 700; font-size: 17px; }
+  .ubi svg { width: 18px; height: 18px; }
+  .ubi span { font-weight: 400; font-size: 13px; opacity: .8; }
+  .ubi.vuota { color: var(--sec); background: var(--fill); font-weight: 400; }
+  .meta { font-size: 15px; color: var(--sec); margin-top: 10px; }
+  .meta strong { color: var(--label); }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 15px; color: var(--sec); }
+  .field > input { width: 96px; text-align: center; }
+  .stepper { display: flex; align-items: center; background: var(--fill); border-radius: 10px; }
+  .stepper button { width: 46px; height: 40px; border: 0; background: none; color: var(--tint); font-size: 24px; line-height: 1; }
+  .stepper input, .field > input { width: 64px; height: 40px; border: 0; background: none; font: 600 17px -apple-system, system-ui;
+                                   color: var(--label); text-align: center; outline: none; }
+  .field > input { background: var(--fill); border-radius: 10px; width: 96px; }
+  .item .foto { margin-top: 12px; }
+
+  .ordine { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: var(--card);
+            border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .ordine > div { flex: 1; min-width: 0; }
+  .ordine .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
+  .ordine svg { color: var(--sec); width: 18px; }
+  .banner { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; }
+  .banner > div { flex: 1; }
+  .banner i { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #fff; }
+  .banner .icon { color: var(--sec); }
+
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+         background: var(--bar); border-top: .5px solid var(--sep); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+  .bar .btn { max-width: 608px; margin: 0 auto; }
+  #msg { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 10;
+         width: max-content; max-width: calc(100% - 32px); padding: 12px 18px; border-radius: 14px; font-size: 15px; text-align: center;
+         color: #fff; background: rgba(30,30,32,.92); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+         box-shadow: 0 8px 24px rgba(0,0,0,.2); display: none; }
 </style>
 </head>
 <body>
-<header><button id="back" hidden onclick="home()">&larr;</button><h1 id="titolo">Magazzino</h1></header>
+<header><button id="back" hidden onclick="home()"></button><h1 id="titolo">Magazzino</h1></header>
 <main id="main"></main>
 <div id="msg"></div>
 <!-- campo fisso nella pagina: su iPhone un input creato al volo perde la foto dalla seconda volta -->
 <input type="file" id="fotoInput" accept="image/*" capture="environment" hidden>
 <script>
+// icone a tratto (24x24), stile SF Symbols
+const ICO = {
+  carico: '<path d="M12 3v11M7 9l5 5 5-5M4 16v4h16v-4"/>',
+  scarico: '<path d="M12 14V3M7 8l5-5 5 5M4 16v4h16v-4"/>',
+  inventario: '<path d="M9 3h6v3H9zM7 4.5H5V21h14V4.5h-2M9 11h6M9 15h6"/>',
+  ordini: '<path d="M3 21V11l6 3.5V11l6 3.5V4h5v17zM3 21h18M7 17.5h1M12 17.5h1M17 17.5h1"/>',
+  acquisti: '<path d="M3 4h2.5l2.2 10.5h10.6L20 7.5H6.2"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/>',
+  camera: '<path d="M4 8h3.2l1.8-2.5h6l1.8 2.5H20v11H4z"/><circle cx="12" cy="13" r="3.2"/>',
+  scan: '<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10"/>',
+  pin: '<path d="M12 21s-6.5-6-6.5-11.5a6.5 6.5 0 0 1 13 0C18.5 15 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.3"/>',
+  trash: '<path d="M4 7h16M9.5 7V4h5v3M6.5 7l1 13h9l1-13"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  avanti: '<path d="M9 5l7 7-7 7"/>',
+  chiudi: '<path d="M6 6l12 12M18 6L6 18"/>',
+  occhio: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  elenco: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+};
+const ico = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
 const APPS = {
-  carico:     { nome: "Carico",     icona: "📥", colore: "#15803d" },
-  scarico:    { nome: "Scarico",    icona: "📤", colore: "#b91c1c" },
-  inventario: { nome: "Inventario", icona: "📋", colore: "#1d4ed8", rif: "Ubicazione / zona" },
-  ordini:     { nome: "Ordini reparto", icona: "🏭", colore: "#7c3aed", rif: "Reparto" },
-  acquisti:   { nome: "Richiesta acquisti", icona: "🛒", colore: "#b45309" },
+  carico:     { nome: "Carico",     colore: "#34c759" },
+  scarico:    { nome: "Scarico",    colore: "#ff3b30" },
+  inventario: { nome: "Inventario", colore: "#007aff", rif: "Ubicazione" },
+  ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto" },
+  acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500" },
 };
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto, il carico le richieste d'acquisto
-const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "🏭" }, carico: { aperti: "acquisti", nome: "richiesta d'acquisto", icona: "🛒" } };
+const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" }, carico: { aperti: "acquisti", nome: "richiesta d'acquisto", icona: "acquisti" } };
 // URL della distribuzione Apps Script (Distribuisci > Applicazione web)
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyTPOkCB28INWWQgK7CcP8pGIuwxJg_jvk-OxIVAbgadqml9J6At4d8NooJVZrUd99VPA/exec";
 const $ = s => document.querySelector(s);
@@ -80,37 +182,46 @@ async function caricaProdotti(token) {
   foto = j.foto || {}; store.set("foto", foto); return true;
 }
 
-function accesso() {
-  $("#back").hidden = true; $("#titolo").textContent = "Magazzino";
-  $("#main").innerHTML = `<label>Codice di accesso</label>
-    <div class="row"><input id="tok" type="password" autocapitalize="none" autocorrect="off">
-    <button class="btn alt" aria-label="Mostra codice" onclick="const t=$('#tok'); t.type = t.type === 'password' ? 'text' : 'password'">👁</button></div>
-    <button class="btn full" id="entra">Entra</button>`;
-  $("#entra").onclick = async () => {
-    const t = $("#tok").value.trim();
-    if (t && await caricaProdotti(t)) { store.set("token", t); home(); }
-  };
+function testata(titolo, conIndietro) {
+  $("header").className = conIndietro ? "" : "home";
+  $("#back").hidden = !conIndietro; $("#back").innerHTML = ico("back") + "Home";
+  $("#titolo").textContent = titolo;
 }
-const salva = () => store.set("bozza_" + tipo, bozza);
 
+function accesso() {
+  testata("Magazzino", false);
+  $("#main").innerHTML = `<div class="group"><div class="cell"><span>Codice</span>
+      <input id="tok" type="password" placeholder="Codice di accesso" autocapitalize="none" autocorrect="off" enterkeyhint="go">
+      <button class="icon" aria-label="Mostra codice" onclick="const t=$('#tok'); t.type = t.type === 'password' ? 'text' : 'password'">${ico("occhio")}</button></div></div>
+    <p class="note">Il codice te lo dà il responsabile: reparti e magazzino ne hanno uno diverso.</p>
+    <button class="btn" id="entra">Entra</button>`;
+  const entra = async () => {
+    const t = $("#tok").value.trim(), b = $("#entra");
+    if (!t) return;
+    b.disabled = true; b.textContent = "Verifica…";
+    if (await caricaProdotti(t)) { store.set("token", t); home(); } else { b.disabled = false; b.textContent = "Entra"; }
+  };
+  $("#entra").onclick = entra;
+  $("#tok").onkeydown = e => { if (e.key === "Enter") entra(); };
+}
+
+const salva = () => store.set("bozza_" + tipo, bozza);
 function avviso(t, ms = 2000) {
   const m = $("#msg"); m.textContent = t; m.style.display = "block";
   clearTimeout(m._t); m._t = setTimeout(() => m.style.display = "none", ms);
 }
-
 async function fermaScanner() {
   if (scanner) { try { await scanner.stop(); } catch {} scanner = null; }
 }
 
 async function home() {
   await fermaScanner(); tipo = null;
-  $("#back").hidden = true; $("#titolo").textContent = "Magazzino";
+  testata("Magazzino", false);
   // il server rifiuta comunque le funzioni non consentite: qui si nascondono solo i riquadri
   $("#main").innerHTML = `<div class="grid">${Object.entries(APPS).filter(([k]) => permesse.includes(k)).map(([k, a]) =>
-    `<button class="tile" style="background:${a.colore}" onclick="apri('${k}')"><span>${a.icona}</span>${a.nome}</button>`).join("")}</div>
-    <button class="btn full alt" onclick="esci()">Cambia codice di accesso</button>`;
+    `<button class="tile" onclick="apri('${k}')"><i style="background:${a.colore}">${ico(k)}</i>${a.nome}</button>`).join("")}</div>
+    <button class="link" onclick="esci()">Cambia codice di accesso</button>`;
 }
-
 function esci() {
   if (!confirm("Uscire? Servirà di nuovo il codice di accesso.")) return;
   try { localStorage.removeItem("token"); } catch {}
@@ -120,44 +231,55 @@ function esci() {
 function apri(t) {
   fermaScanner(); tipo = t; const a = APPS[t];
   bozza = store.get("bozza_" + t) || { riferimento: "", righe: [] };
-  $("#back").hidden = false; $("#titolo").textContent = a.nome;
+  testata(a.nome, true);
   $("#main").innerHTML = `
     ${!DA[t] ? "" : bozza.ordine
-      ? `<div class="item"><b>${DA[t].icona} ${esc(bozza.nomeOrdine || bozza.riferimento)}</b><small>${esc(bozza.dataOrdine)}</small>
-         <div class="qty"><button class="del" onclick="sganciaOrdine()">✕</button></div></div>`
-      : `<button class="btn full alt" onclick="elencoOrdini()">${DA[t].icona} Richiama ${DA[t].nome}</button>`}
-    ${a.rif ? `<label>${a.rif}</label><input id="rif" value="${esc(bozza.riferimento)}">` : ""}
-    ${t !== "ordini" && t !== "acquisti" ? "" : `
-      <label class="urg"><input type="checkbox" id="urg" ${bozza.urgente ? "checked" : ""}> 🚨 URGENTE</label>
-      <input id="motivo" placeholder="Motivo urgenza (obbligatorio)" value="${esc(bozza.motivo)}" ${bozza.urgente && t === "ordini" ? "" : "hidden"}>`}
-    <label>Operatore</label><input id="op" value="${esc(store.get("operatore") || "")}">
-    <button class="btn full alt" id="cam" onclick="toggleCam()">📷 Avvia scansione</button>
-    <div id="reader"></div>
-    <button class="btn full" id="scatta" hidden onclick="arma()">🎯 Scansiona</button>
-    <label>Codice manuale o lettore barcode</label>
-    <div class="row"><input id="cod" enterkeyhint="done"><button class="btn" onclick="manuale()">+</button></div>
+      ? `<div class="banner"><i style="background:${APPS[DA[t].aperti].colore}">${ico(DA[t].icona)}</i>
+         <div><b>${esc(bozza.nomeOrdine || bozza.riferimento)}</b><div class="meta" style="margin:0">${esc(bozza.dataOrdine)}</div></div>
+         <button class="icon" aria-label="Sgancia" onclick="sganciaOrdine()">${ico("chiudi")}</button></div>`
+      : `<button class="btn gray" style="margin-bottom:20px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>`}
+    <div class="group">
+      ${a.rif ? `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>` : ""}
+      <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
+      ${t !== "ordini" && t !== "acquisti" ? "" : `
+        <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
+        <label class="cell" id="motivoCell" ${bozza.urgente && t === "ordini" ? "" : "hidden"}><span>Motivo</span>
+          <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
+    </div>
+    <div class="scan">
+      <div id="reader"></div>
+      <button class="btn" id="scatta" hidden onclick="arma()"></button>
+      <button class="btn gray" id="cam" onclick="toggleCam()"></button>
+    </div>
+    <div class="group"><div class="cell">
+      <input id="cod" placeholder="Codice a mano o lettore barcode" enterkeyhint="done" autocapitalize="characters" autocorrect="off">
+      <button class="icon" aria-label="Aggiungi" onclick="manuale()" style="color:var(--tint);font-size:28px;line-height:1">+</button>
+    </div></div>
+    <h2 id="conta"></h2>
     <div id="lista"></div>
-    <button class="btn full" id="invia" onclick="invia()">Genera Excel</button>`;
+    <div class="bar"><button class="btn" id="invia" onclick="invia()">Genera Excel</button></div>`;
+  camSpenta();
   if (a.rif) $("#rif").oninput = e => { bozza.riferimento = e.target.value; salva(); };
-  if ($("#urg")) {
-    $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivo").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
-    $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
-  }
+  if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
+  if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
   $("#cod").onkeydown = e => { if (e.key === "Enter") manuale(); };
   disegna();
 }
 
 async function elencoOrdini() {
+  $("#conta").textContent = "Caricamento…"; $("#lista").innerHTML = "";
   const j = await fetch(SCRIPT_URL + "?aperti=" + DA[tipo].aperti + "&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
-  if (!j || j.error) return avviso("Ordini non disponibili: " + (j?.error || "server non raggiungibile"), 3000);
+  if (!j || j.error) return disegna(), avviso("Elenco non disponibile: " + (j?.error || "server non raggiungibile"), 3000);
   ordini = j.ordini.sort((a, b) => !!b.urgente - !!a.urgente); // urgenti in cima, poi dal più vecchio
-  if (!ordini.length) return avviso("Nessuna " + DA[tipo].nome + " aperta");
+  if (!ordini.length) return disegna(), avviso("Nessuna " + DA[tipo].nome + " aperta");
+  $("#conta").textContent = `Da richiamare (${ordini.length})`;
   $("#lista").innerHTML = ordini.map((o, i) => `
-    <div class="item ${o.urgente ? "ko" : ""}" onclick="evadi(${i})"><b>${o.urgente ? "🚨 URGENTE — " : ""}${esc(o.reparto || "Richiesta acquisti")}</b>
-      ${o.urgente ? `<small>Motivo: ${esc(o.motivo)}</small><br>` : ""}<small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}</small></div>`).join("");
+    <button class="ordine" onclick="evadi(${i})"><div>
+      <b>${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}</b>
+      ${o.urgente && o.motivo ? `<small>${esc(o.motivo)}</small>` : ""}
+      <small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}</small></div>${ico("avanti")}</button>`).join("");
 }
-
 function evadi(i) {
   if (bozza.righe.length && !confirm("Sostituire gli articoli già scansionati con la " + DA[tipo].nome + "?")) return;
   const o = ordini[i];
@@ -165,38 +287,35 @@ function evadi(i) {
             righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, qta: 0, dichiarata: "" })) };
   salva(); apri(tipo);
 }
-
 function sganciaOrdine() {
   if (!confirm("Sganciare la " + DA[tipo].nome + "? Resta aperta.")) return;
   bozza = { riferimento: "", righe: [] }; salva(); apri(tipo);
 }
 
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-
 function aggiungi(codice) {
   codice = codice.trim(); if (!codice) return;
   let r = bozza.righe.find(x => x.codice === codice);
   if (r) r.qta++;
   else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: 1, dichiarata: "", giacenza: "" });
   navigator.vibrate?.(80);
-  avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${r.qta})` : `⚠️ ${codice} non in anagrafica`);
+  avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${r.qta})` : `${codice} non è in anagrafica`);
   salva(); disegna();
 }
-
 function manuale() { const i = $("#cod"); aggiungi(i.value); i.value = ""; i.focus(); }
 
-function arma() { armato = true; $("#scatta").disabled = true; $("#scatta").textContent = "Inquadra il codice…"; }
-function disarma() { armato = false; const b = $("#scatta"); if (b) { b.disabled = false; b.textContent = "🎯 Scansiona"; } }
-
+function arma() { armato = true; const b = $("#scatta"); b.disabled = true; b.textContent = "Inquadra il codice…"; }
+function disarma() { armato = false; const b = $("#scatta"); if (b) { b.disabled = false; b.innerHTML = ico("scan") + "Scansiona"; } }
+function camSpenta() { $("#cam").innerHTML = ico("camera") + "Avvia fotocamera"; $("#scatta").hidden = true; }
 async function toggleCam() {
-  if (scanner) { await fermaScanner(); $("#cam").textContent = "📷 Avvia scansione"; $("#scatta").hidden = true; return; }
+  if (scanner) { await fermaScanner(); return camSpenta(); }
   scanner = new Html5Qrcode("reader");
   try {
     await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 160 } }, c => {
       if (!armato) return; // legge solo dopo il tocco su "Scansiona": niente QR vicini letti per sbaglio
       disarma(); aggiungi(c);
     });
-    $("#cam").textContent = "⏹ Spegni fotocamera"; disarma(); $("#scatta").hidden = false;
+    $("#cam").innerHTML = ico("chiudi") + "Spegni fotocamera"; disarma(); $("#scatta").hidden = false;
   } catch (e) { scanner = null; avviso("Fotocamera non disponibile: " + e, 4000); }
 }
 
@@ -205,23 +324,23 @@ function stato(r) {
   if (tipo !== "carico" || r.dichiarata === "") return r.descrizione ? "" : "warn";
   return Number(r.dichiarata) === Number(r.qta) ? "ok" : "ko";
 }
-
 function disegna() {
-  $("#lista").innerHTML = bozza.righe.map((r, i) => `
+  const n = bozza.righe.length;
+  $("#conta").textContent = n ? `Articoli (${n})` : "";
+  $("#lista").innerHTML = n ? bozza.righe.map((r, i) => `
     <div class="item ${stato(r)}">
-      <b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small>
-      ${tipo === "scarico" ? `<div class="ubi" onclick="modificaUbicazione(${i})">📍 ${esc(ubicazioni[r.codice]) || "ubicazione non nota"} <span>✎ modifica</span></div>` : ""}
-      ${tipo === "scarico" && !foto[r.codice] ? `<button class="btn alt foto" onclick="scattaFoto(${i}, this)">📷 Foto prodotto</button>` : ""}
-      ${r.richiesta !== undefined ? `<small>${tipo === "carico" ? "Ordinati" : "Richiesti"}: ${r.richiesta}</small>` : ""}
-      ${tipo === "acquisti" ? `<div class="qty">Giacenza <input type="number" inputmode="decimal" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"><button class="del" onclick="rimuovi(${i})">✕</button></div>` : ""}
-      ${tipo === "carico" ? `<div class="qty">Bolla <input type="number" inputmode="decimal" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
-      ${tipo === "acquisti" ? "" : `<div class="qty">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Qtà"}
-        <button onclick="campo(${i},'qta',${r.qta}-1)">−</button>
+      <div class="top"><div><b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small></div>
+        <button class="icon del" aria-label="Rimuovi" onclick="rimuovi(${i})">${ico("trash")}</button></div>
+      ${tipo === "scarico" ? `<button class="ubi ${ubicazioni[r.codice] ? "" : "vuota"}" onclick="modificaUbicazione(${i})">${ico("pin")}${esc(ubicazioni[r.codice]) || "Ubicazione non nota"} <span>Modifica</span></button>` : ""}
+      ${r.richiesta !== undefined ? `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>` : ""}
+      ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>` : ""}
+      ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
+      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità"}
+        <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
-        <button onclick="campo(${i},'qta',${r.qta}+1)">+</button>
-        <button class="del" onclick="rimuovi(${i})">✕</button>
-      </div>`}
-    </div>`).join("");
+        <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
+      ${tipo === "scarico" && !foto[r.codice] ? `<button class="btn gray small foto" onclick="scattaFoto(${i}, this)">${ico("camera")}Foto prodotto</button>` : ""}
+    </div>`).join("") : `<p class="note" style="margin:0 16px;text-align:center">Nessun articolo: scansiona un codice o scrivilo a mano.</p>`;
 }
 
 async function modificaUbicazione(i) {
@@ -255,7 +374,7 @@ function scattaFoto(i, btn) {
         body: JSON.stringify({ token: store.get("token"), tipo: "foto", codice, file: cv.toDataURL("image/jpeg", 0.8).split(",")[1] }),
       }).then(r => r.json()).catch(() => ({ error: "server non raggiungibile" }));
     } catch (e) { j = { error: "immagine non leggibile (" + e.message + ")" }; }
-    if (j.error) { btn.disabled = false; btn.textContent = "📷 Foto prodotto"; return avviso("Foto non salvata: " + j.error, 6000); }
+    if (j.error) { btn.disabled = false; btn.innerHTML = ico("camera") + "Foto prodotto"; return avviso("Foto non salvata: " + j.error, 6000); }
     foto[codice] = 1; store.set("foto", foto); disegna(); avviso(`Foto di ${codice} salvata`);
   };
   inp.click();
@@ -265,9 +384,9 @@ function campo(i, k, v) { bozza.righe[i][k] = k === "qta" ? Math.max(0, Number(v
 function rimuovi(i) { bozza.righe.splice(i, 1); salva(); disegna(); }
 
 async function invia() {
-  if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif);
+  if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
-  if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità di bolla su qualche riga");
+  if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
   const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
