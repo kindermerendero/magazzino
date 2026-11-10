@@ -113,7 +113,8 @@
   .ordine { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: var(--card);
             border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
   .ordine > div { flex: 1; min-width: 0; }
-  .ordine .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
+  .item .badge { background: #ff9500 !important; }
+  .ordine .badge, .item .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
   .ordine svg { color: var(--sec); width: 18px; }
   .banner { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; }
   .banner > div { flex: 1; }
@@ -170,7 +171,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
@@ -179,6 +180,8 @@ async function caricaProdotti(token) {
   prodotti = j.prodotti; store.set("prodotti", prodotti);
   permesse = j.app || []; store.set("app", permesse);
   ubicazioni = j.ubicazioni || {}; store.set("ubicazioni", ubicazioni);
+  giacenze = j.giacenze || {}; store.set("giacenze", giacenze);
+  scorte = j.scorte || {}; store.set("scorte", scorte);
   foto = j.foto || {}; store.set("foto", foto); return true;
 }
 
@@ -232,12 +235,14 @@ function apri(t) {
   fermaScanner(); tipo = t; const a = APPS[t];
   bozza = store.get("bozza_" + t) || { riferimento: "", righe: [] };
   testata(a.nome, true);
+  if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
     ${!DA[t] ? "" : bozza.ordine
       ? `<div class="banner"><i style="background:${APPS[DA[t].aperti].colore}">${ico(DA[t].icona)}</i>
          <div><b>${esc(bozza.nomeOrdine || bozza.riferimento)}</b><div class="meta" style="margin:0">${esc(bozza.dataOrdine)}</div></div>
          <button class="icon" aria-label="Sgancia" onclick="sganciaOrdine()">${ico("chiudi")}</button></div>`
       : `<button class="btn gray" style="margin-bottom:20px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>`}
+    ${t === "acquisti" ? `<button class="btn gray" style="margin-bottom:20px" onclick="sottoscorta()">${ico("elenco")}Aggiungi articoli sottoscorta</button>` : ""}
     <div class="group">
       ${a.rif ? `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>` : ""}
       <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
@@ -245,6 +250,7 @@ function apri(t) {
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
         <label class="cell" id="motivoCell" ${bozza.urgente && t === "ordini" ? "" : "hidden"}><span>Motivo</span>
           <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
+      ${t === "scarico" && bozza.ordine ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
     <div class="scan">
       <div id="reader"></div>
@@ -261,6 +267,7 @@ function apri(t) {
   camSpenta();
   if (a.rif) $("#rif").oninput = e => { bozza.riferimento = e.target.value; salva(); };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
+  if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
   if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
   $("#cod").onkeydown = e => { if (e.key === "Enter") manuale(); };
@@ -297,10 +304,27 @@ function aggiungi(codice) {
   codice = codice.trim(); if (!codice) return;
   let r = bozza.righe.find(x => x.codice === codice);
   if (r) r.qta++;
-  else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: 1, dichiarata: "", giacenza: "" });
+  else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: 1, dichiarata: "", giacenza: giacenze[codice] ?? "" });
   navigator.vibrate?.(80);
   avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${r.qta})` : `${codice} non è in anagrafica`);
   salva(); disegna();
+}
+// codici già presenti in una richiesta d'acquisto ancora aperta → data della più recente: si ripropongono comunque, ma con l'etichetta
+async function caricaRichiesti() {
+  const j = await fetch(SCRIPT_URL + "?aperti=acquisti&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
+  if (!j || j.error) return false;
+  richiesti = {}; j.ordini.forEach(o => o.righe.forEach(r => richiesti[r.codice] = String(o.data).split(",")[0]));
+  if (tipo === "acquisti") disegna();
+  return true;
+}
+// articoli con giacenza nota sotto la scorta minima (scheda "scorte" del Google Sheet)
+async function sottoscorta() {
+  avviso("Calcolo giacenze…", 10000);
+  const [, verificati] = await Promise.all([caricaProdotti(store.get("token")), caricaRichiesti()]);
+  const sotto = Object.keys(scorte).filter(c => giacenze[c] !== undefined && scorte[c][0] !== "" && giacenze[c] < scorte[c][0] && !bozza.righe.some(r => r.codice === c));
+  if (!sotto.length) return avviso(Object.keys(giacenze).length ? "Nessun altro articolo sotto la scorta minima" : "Giacenze non ancora note: serve un inventario", 4000);
+  sotto.forEach(c => bozza.righe.push({ codice: c, descrizione: prodotti[c] || "", qta: 1, dichiarata: "", giacenza: giacenze[c] }));
+  salva(); disegna(); avviso(sotto.length + " articoli sottoscorta aggiunti" + (verificati ? "" : " — richieste già fatte non verificate: server non raggiungibile"), verificati ? 3000 : 6000);
 }
 function manuale() { const i = $("#cod"); aggiungi(i.value); i.value = ""; i.focus(); }
 
@@ -333,6 +357,8 @@ function disegna() {
         <button class="icon del" aria-label="Rimuovi" onclick="rimuovi(${i})">${ico("trash")}</button></div>
       ${tipo === "scarico" ? `<button class="ubi ${ubicazioni[r.codice] ? "" : "vuota"}" onclick="modificaUbicazione(${i})">${ico("pin")}${esc(ubicazioni[r.codice]) || "Ubicazione non nota"} <span>Modifica</span></button>` : ""}
       ${r.richiesta !== undefined ? `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>` : ""}
+      ${tipo === "acquisti" && richiesti[r.codice] ? `<div class="meta"><span class="badge">GIÀ RICHIESTO</span> il ${esc(richiesti[r.codice])}</div>` : ""}
+      ${(tipo === "acquisti" || tipo === "scarico") && scorte[r.codice] ? `<div class="meta">Scorta min: <strong>${esc(scorte[r.codice][0]) || "–"}</strong> · max: <strong>${esc(scorte[r.codice][1]) || "–"}</strong></div>` : ""}
       ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>` : ""}
       ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
       ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità"}
@@ -390,18 +416,31 @@ async function invia() {
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
   const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
-  const d = new Date(), data = d.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" });
-  const rif = bozza.riferimento.trim(), op = $("#op").value.trim();
-  const ws = XLSX.utils.aoa_to_sheet([TRACCIATI[tipo], ...bozza.righe.map(r => rigaExcel(tipo, data, rif, op, { ...r, urgente: bozza.urgente }))]);
+  const rif = bozza.riferimento.trim(), op = $("#op").value.trim(), righeOra = JSON.stringify(bozza.righe);
+  // nome e data fissati al primo tentativo: se la risposta si perde, il reinvio porta lo stesso documento e il server non lo registra due volte
+  if (!bozza.invio) {
+    const d = new Date();
+    bozza.invio = { nome: nomeFile(tipo, d, (tipo === "acquisti" && bozza.urgente ? "URGENTE " : "") + rif).replace(".xlsx", "_" + Math.random().toString(36).slice(2, 6) + ".xlsx"),
+                    data: d.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), righe: righeOra };
+    salva();
+  }
+  const { nome, data } = bozza.invio;
+  const ws = XLSX.utils.aoa_to_sheet([TRACCIATI[tipo], ...bozza.righe.map(r => rigaExcel(tipo, data, rif, op, { ...r, urgente: bozza.urgente, scorta: scorte[r.codice] }))]);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, tipo);
   // text/plain evita il preflight CORS, che Apps Script non gestisce
   const j = await fetch(SCRIPT_URL, {
     method: "POST", headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ token: store.get("token"), tipo, nome: nomeFile(tipo, d, (tipo === "acquisti" && bozza.urgente ? "URGENTE " : "") + rif), file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }),
-      ordine: bozza.ordine, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : "",
-      righe: tipo === "ordini" || tipo === "acquisti" ? bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: tipo === "ordini" ? r.qta : undefined })) : undefined }),
+    body: JSON.stringify({ token: store.get("token"), tipo, nome, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }),
+      ordine: bozza.ordine, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : "",
+      righe: bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: tipo === "acquisti" ? "" : r.qta,
+        attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : "" })) }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = "Genera Excel", avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
+  // il primo invio era arrivato, ma nel frattempo la bozza è cambiata: quelle modifiche non sono sul server
+  if (j.duplicato && bozza.invio.righe !== righeOra) {
+    delete bozza.invio; salva(); btn.disabled = false; btn.textContent = "Genera Excel";
+    return alert("Il primo invio era già arrivato: le modifiche fatte dopo NON sono salvate.\nTogli gli articoli già inviati, lascia solo quelli nuovi e invia di nuovo.");
+  }
   // bozza cancellata solo dopo conferma di scrittura del file
   bozza = { riferimento: "", righe: [] }; salva(); apri(tipo);
   if (j.avviso === false) avviso("Ordine salvato, ma l'avviso al magazzino NON è partito: chiama il magazziniere", 6000);

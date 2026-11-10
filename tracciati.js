@@ -4,7 +4,7 @@ const TRACCIATI = {
   scarico:    ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta", "Qta prelevata", "Mancante", "Esito"],
   inventario: ["Data", "Ubicazione", "Operatore", "Codice", "Descrizione", "Qta contata"],
   ordini:     ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta"],
-  acquisti:   ["Data", "Operatore", "Codice", "Descrizione", "Giacenza", "Urgente"],
+  acquisti:   ["Data", "Operatore", "Codice", "Descrizione", "Giacenza", "Urgente", "Scorta min", "Scorta max"],
 };
 
 function rigaExcel(tipo, data, rif, operatore, r) {
@@ -15,7 +15,7 @@ function rigaExcel(tipo, data, rif, operatore, r) {
     const rich = Number(r.richiesta);
     return [...base, rich, qta, Math.max(0, rich - qta), qta >= rich ? "EVASO" : qta === 0 ? "NON DISPONIBILE" : "PARZIALE"];
   }
-  if (tipo === "acquisti") return [...base, Number(r.giacenza), r.urgente ? "SI" : ""];
+  if (tipo === "acquisti") return [...base, Number(r.giacenza), r.urgente ? "SI" : "", ...(r.scorta || ["", ""])];
   if (tipo !== "carico") return [...base, qta];
   const dich = Number(r.dichiarata), diff = qta - dich;
   return [...base, dich, qta, diff, diff === 0 ? "OK" : "NON CONFORME", r.richiesta ?? ""];
