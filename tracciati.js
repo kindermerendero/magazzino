@@ -1,7 +1,7 @@
 // ponytail: tracciati generici, da sostituire con quelli del gestionale per ciascuna funzione
 const TRACCIATI = {
   carico:     ["Data", "Operatore", "Codice", "Descrizione", "Qta bolla", "Qta contata", "Differenza", "Esito", "Qta ordinata"],
-  scarico:    ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta", "Qta prelevata", "Mancante", "Esito"],
+  scarico:    ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta", "Qta prelevata", "Mancante", "Esito", "Motivo"],
   inventario: ["Data", "Ubicazione", "Operatore", "Codice", "Descrizione", "Qta contata"],
   ordini:     ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta"],
   acquisti:   ["Data", "Operatore", "Codice", "Descrizione", "Giacenza", "Urgente", "Scorta min", "Scorta max"],
@@ -11,9 +11,9 @@ function rigaExcel(tipo, data, rif, operatore, r) {
   // carico e acquisti senza riferimento; nello scarico è il reparto dell'ordine evaso (vuoto se scarico libero)
   const qta = Number(r.qta), base = [data, ...(tipo === "carico" || tipo === "acquisti" ? [] : [rif]), operatore, r.codice, r.descrizione || ""];
   if (tipo === "scarico") {
-    if (r.richiesta === undefined || r.richiesta === "") return [...base, "", qta, "", ""];
+    if (r.richiesta === undefined || r.richiesta === "") return [...base, "", qta, "", "", r.causale || ""];
     const rich = Number(r.richiesta);
-    return [...base, rich, qta, Math.max(0, rich - qta), qta >= rich ? "EVASO" : qta === 0 ? "NON DISPONIBILE" : "PARZIALE"];
+    return [...base, rich, qta, Math.max(0, rich - qta), qta >= rich ? "EVASO" : qta === 0 ? "NON DISPONIBILE" : "PARZIALE", r.causale || ""];
   }
   if (tipo === "acquisti") return [...base, Number(r.giacenza), r.urgente ? "SI" : "", ...(r.scorta || ["", ""])];
   if (tipo !== "carico") return [...base, qta];

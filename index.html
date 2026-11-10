@@ -58,6 +58,7 @@
   .cell > span { flex: none; min-width: 92px; }
   .cell > span.red { color: var(--red); font-weight: 600; flex: 1; }
   .cell input:not(.switch) { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--label); padding: 10px 0; outline: none; }
+  .cell select { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--label); padding: 10px 0; outline: none; }
   .cell input::placeholder { color: var(--sec); }
   .cell .icon { color: var(--tint); }
   .note { font-size: 13px; color: var(--sec); margin: -14px 16px 20px; }
@@ -156,13 +157,15 @@ const ICO = {
 };
 const ico = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
 const APPS = {
-  carico:     { nome: "Carico",     colore: "#34c759" },
-  scarico:    { nome: "Scarico",    colore: "#ff3b30" },
-  inventario: { nome: "Inventario", colore: "#007aff", rif: "Ubicazione" },
-  ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto" },
-  acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500" },
+  carico:     { nome: "Carico",     colore: "#34c759", invia: "Registra carico" },
+  scarico:    { nome: "Scarico",    colore: "#ff3b30", invia: "Registra scarico" },
+  inventario: { nome: "Inventario", colore: "#007aff", rif: "Ubicazione", invia: "Salva inventario" },
+  ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto", invia: "Invia ordine" },
+  acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500", invia: "Invia richiesta" },
 };
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto, il carico le richieste d'acquisto
+// motivo dello scarico, obbligatorio: finisce nell'Excel, nel nome del file e nella colonna Motivo dei movimenti
+const CAUSALI = ["Produzione", "Ricambi", "Ricavi Commerciali"];
 const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" }, carico: { aperti: "acquisti", nome: "richiesta d'acquisto", icona: "acquisti" } };
 // URL della distribuzione Apps Script (Distribuisci > Applicazione web)
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyTPOkCB28INWWQgK7CcP8pGIuwxJg_jvk-OxIVAbgadqml9J6At4d8NooJVZrUd99VPA/exec";
@@ -250,6 +253,8 @@ function apri(t) {
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
         <label class="cell" id="motivoCell" ${bozza.urgente && t === "ordini" ? "" : "hidden"}><span>Motivo</span>
           <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
+      ${t !== "scarico" ? "" : `<label class="cell"><span>Motivo</span><select id="causale"><option value="">Scegli…</option>${
+        CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
       ${t === "scarico" && bozza.ordine ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
     <div class="scan">
@@ -263,10 +268,11 @@ function apri(t) {
     </div></div>
     <h2 id="conta"></h2>
     <div id="lista"></div>
-    <div class="bar"><button class="btn" id="invia" onclick="invia()">Genera Excel</button></div>`;
+    <div class="bar"><button class="btn" id="invia" onclick="invia()">${a.invia}</button></div>`;
   camSpenta();
   if (a.rif) $("#rif").oninput = e => { bozza.riferimento = e.target.value; salva(); };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
+  if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
   if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
@@ -290,7 +296,7 @@ async function elencoOrdini() {
 function evadi(i) {
   if (bozza.righe.length && !confirm("Sostituire gli articoli già scansionati con la " + DA[tipo].nome + "?")) return;
   const o = ordini[i];
-  bozza = { riferimento: o.reparto, ordine: o.id, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti"),
+  bozza = { riferimento: o.reparto, ordine: o.id, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti"),
             righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, qta: 0, dichiarata: "" })) };
   salva(); apri(tipo);
 }
@@ -412,6 +418,7 @@ function rimuovi(i) { bozza.righe.splice(i, 1); salva(); disegna(); }
 async function invia() {
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
+  if (tipo === "scarico" && !CAUSALI.includes(bozza.causale)) return avviso("Scegli il motivo dello scarico");
   if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
@@ -420,25 +427,25 @@ async function invia() {
   // nome e data fissati al primo tentativo: se la risposta si perde, il reinvio porta lo stesso documento e il server non lo registra due volte
   if (!bozza.invio) {
     const d = new Date();
-    bozza.invio = { nome: nomeFile(tipo, d, (tipo === "acquisti" && bozza.urgente ? "URGENTE " : "") + rif).replace(".xlsx", "_" + Math.random().toString(36).slice(2, 6) + ".xlsx"),
+    bozza.invio = { nome: nomeFile(tipo, d, (tipo === "acquisti" && bozza.urgente ? "URGENTE " : tipo === "scarico" ? bozza.causale + " " : "") + rif).replace(".xlsx", "_" + Math.random().toString(36).slice(2, 6) + ".xlsx"),
                     data: d.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), righe: righeOra };
     salva();
   }
   const { nome, data } = bozza.invio;
-  const ws = XLSX.utils.aoa_to_sheet([TRACCIATI[tipo], ...bozza.righe.map(r => rigaExcel(tipo, data, rif, op, { ...r, urgente: bozza.urgente, scorta: scorte[r.codice] }))]);
+  const ws = XLSX.utils.aoa_to_sheet([TRACCIATI[tipo], ...bozza.righe.map(r => rigaExcel(tipo, data, rif, op, { ...r, urgente: bozza.urgente, scorta: scorte[r.codice], causale: bozza.causale }))]);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, tipo);
   // text/plain evita il preflight CORS, che Apps Script non gestisce
   const j = await fetch(SCRIPT_URL, {
     method: "POST", headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({ token: store.get("token"), tipo, nome, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }),
-      ordine: bozza.ordine, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : "",
+      ordine: bozza.ordine, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : tipo === "scarico" ? bozza.causale : "",
       righe: bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: tipo === "acquisti" ? "" : r.qta,
         attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : "" })) }),
   }).then(r => r.json()).catch(() => null);
-  if (!j || j.error) return btn.disabled = false, btn.textContent = "Genera Excel", avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
+  if (!j || j.error) return btn.disabled = false, btn.textContent = APPS[tipo].invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
   // il primo invio era arrivato, ma nel frattempo la bozza è cambiata: quelle modifiche non sono sul server
   if (j.duplicato && bozza.invio.righe !== righeOra) {
-    delete bozza.invio; salva(); btn.disabled = false; btn.textContent = "Genera Excel";
+    delete bozza.invio; salva(); btn.disabled = false; btn.textContent = APPS[tipo].invia;
     return alert("Il primo invio era già arrivato: le modifiche fatte dopo NON sono salvate.\nTogli gli articoli già inviati, lascia solo quelli nuovi e invia di nuovo.");
   }
   // bozza cancellata solo dopo conferma di scrittura del file
