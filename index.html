@@ -137,6 +137,13 @@
   .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
          background: var(--bar); border-top: .5px solid var(--sep); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
   .bar .btn { max-width: 608px; margin: 0 auto; }
+  .bar .due { display: flex; gap: 10px; max-width: 608px; margin: 0 auto; }
+  .bar .due .btn { flex: 1; margin: 0; padding: 0 8px; font-size: 16px; }
+  .tile small { display: block; font-size: 13px; font-weight: 400; color: var(--sec); margin-top: 2px; }
+  .tile small:empty { display: none; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--tint) 35%, var(--card)); } }
+  .flash { animation: flash 1.5s; }
+  #rif[list]:not(:placeholder-shown) { text-transform: uppercase; }
   #msg { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 10;
          width: max-content; max-width: calc(100% - 32px); padding: 12px 18px; border-radius: 14px; font-size: 15px; text-align: center;
          color: #fff; background: rgba(30,30,32,.92); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
@@ -240,8 +247,19 @@ async function home() {
   testata("Magazzino", false);
   // il server rifiuta comunque le funzioni non consentite: qui si nascondono solo i riquadri
   $("#main").innerHTML = `<div class="grid">${Object.entries(APPS).filter(([k]) => permesse.includes(k)).map(([k, a]) =>
-    `<button class="tile" onclick="apri('${k}')"><i style="background:${a.colore}">${ico(k)}</i>${a.nome}</button>`).join("")}</div>
+    `<button class="tile" onclick="apri('${k}')"><i style="background:${a.colore}">${ico(k)}</i><span>${a.nome}<small id="info_${k}"></small>${
+      (n => n ? `<small>Bozza in sospeso: ${n} articoli</small>` : "")(store.get("bozza_" + k)?.righe?.length)}</span></button>`).join("")}</div>
     <button class="link" onclick="esci()">Cambia codice di accesso</button>`;
+  infoHome();
+}
+// quante richieste aspettano il magazzino, senza dover entrare nella funzione: ordini reparto sullo scarico, richieste d'acquisto sul carico
+function infoHome() {
+  if (!permesse.includes("elenco")) return;
+  Object.entries(DA).filter(([k]) => permesse.includes(k)).forEach(([k, d]) =>
+    fetch(SCRIPT_URL + "?aperti=" + d.aperti + "&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).then(j => {
+      const el = $("#info_" + k), n = j.ordini?.length, u = n && j.ordini.filter(o => o.urgente).length;
+      if (el && n) el.innerHTML = `${n} da ${k === "scarico" ? "evadere" : "ricevere"}${u ? ` · <b style="color:var(--red)">${u} urgent${u > 1 ? "i" : "e"}</b>` : ""}`;
+    }).catch(() => {}));
 }
 function esci() {
   if (!confirm("Uscire? Servirà di nuovo il codice di accesso.")) return;
@@ -268,7 +286,7 @@ function apri(t) {
     <div class="group">
       ${!a.rif ? "" : nomiReparti.length ? `<label class="cell"><span>${a.rif}</span><select id="rif"><option value="">Scegli…</option>${
         nomiReparti.map(n => `<option ${bozza.riferimento === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`
-      : `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>`}
+      : `<label class="cell"><span>${a.rif}</span><input id="rif" ${t === "inventario" ? 'list="ubi" autocapitalize="characters" autocorrect="off"' : ""} placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>`}
       <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
       ${t !== "ordini" && t !== "acquisti" ? "" : `
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
@@ -278,6 +296,7 @@ function apri(t) {
         CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
       ${t === "scarico" && bozza.ordine ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
+    ${t !== "inventario" ? "" : `<datalist id="ubi">${[...new Set(Object.values(ubicazioni).map(u => u.replace(/ \?$/, "")))].sort().map(u => `<option value="${esc(u)}">`).join("")}</datalist>`}
     ${a.catalogo ? `
     <button class="btn gray" style="margin-bottom:20px" onclick="ripeti()">${ico("elenco")}Ripeti ultimo ordine</button>
     <div class="seg"><button id="tabCat" onclick="vista('cat')">Catalogo</button><button id="tabSel" onclick="vista('sel')"></button></div>
@@ -292,7 +311,6 @@ function apri(t) {
     <div id="scelti" hidden><h2 id="conta"></h2><div id="lista"></div></div>` : `
     <div class="scan">
       <div id="reader"></div>
-      <button class="btn" id="scatta" hidden onclick="arma()"></button>
       <button class="btn gray" id="cam" onclick="toggleCam()"></button>
     </div>
     <div class="group"><div class="cell">
@@ -301,10 +319,13 @@ function apri(t) {
     </div></div>
     <h2 id="conta"></h2>
     <div id="lista"></div>`}
-    <div class="bar"><button class="btn" id="invia" onclick="azione()">${a.invia}</button></div>`;
-  if (!a.catalogo) camSpenta();
+    <div class="bar">${a.catalogo ? `<button class="btn" id="invia" onclick="azione()">${a.invia}</button>`
+      : `<div class="due"><button class="btn" id="scatta" onclick="scansiona()"></button><button class="btn gray" id="invia" onclick="invia()">${a.invia}</button></div>`}</div>`;
+  if (!a.catalogo) { camSpenta(); disarma(); }
   if (a.rif) $("#rif").oninput = e => {
-    bozza.riferimento = e.target.value; salva();
+    // inventario: sempre maiuscolo, perché "d1.2" e "D1.2" nei movimenti sarebbero due scaffali diversi
+    bozza.riferimento = tipo === "inventario" ? e.target.value.toUpperCase() : e.target.value; salva();
+    if (tipo === "inventario") disegna();
     if (e.target.tagName === "SELECT") { store.set("reparto", e.target.value); tutto = false; disegnaCatalogo(); }
   };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
@@ -398,6 +419,8 @@ function evadi(i) {
   const o = ordini[i];
   bozza = { riferimento: o.reparto, ordine: o.id, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti"),
             righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, qta: 0, dichiarata: "" })) };
+  // giro tra gli scaffali: righe per ubicazione, quelle ignote in fondo
+  if (tipo === "scarico") bozza.righe.sort((a, b) => !ubicazioni[a.codice] - !ubicazioni[b.codice] || (ubicazioni[a.codice] || "").localeCompare(ubicazioni[b.codice] || "", "it", { numeric: true }));
   salva(); apri(tipo);
 }
 function sganciaOrdine() {
@@ -409,11 +432,16 @@ function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;"
 function aggiungi(codice) {
   codice = codice.trim(); if (!codice) return;
   let r = bozza.righe.find(x => x.codice === codice);
+  // lettura sbagliata o articolo fuori dalla richiesta richiamata: non entra senza conferma
+  if (!r && !prodotti[codice] && !confirm(`${codice} non è in anagrafica: può essere una lettura sbagliata.\nAggiungerlo lo stesso?`)) return;
+  if (!r && prodotti[codice] && bozza.ordine && !confirm(`${codice} — ${prodotti[codice]}\nnon è nella ${DA[tipo].nome}. Aggiungerlo lo stesso?`)) return;
   if (r) r.qta++;
   else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: 1, dichiarata: "", giacenza: giacenze[codice] ?? "" });
   navigator.vibrate?.(80);
   avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${r.qta})` : `${codice} non è in anagrafica`);
   salva(); disegna();
+  // la riga toccata può essere fuori schermo: la si porta al centro e la si fa lampeggiare
+  const el = $("#lista").children[bozza.righe.indexOf(r)]; el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash");
 }
 // codici già presenti in una richiesta d'acquisto ancora aperta → data della più recente: si ripropongono comunque, ma con l'etichetta
 async function caricaRichiesti() {
@@ -432,11 +460,17 @@ async function sottoscorta() {
   sotto.forEach(c => bozza.righe.push({ codice: c, descrizione: prodotti[c] || "", qta: 1, dichiarata: "", giacenza: giacenze[c] }));
   salva(); disegna(); avviso(sotto.length + " articoli sottoscorta aggiunti" + (verificati ? "" : " — richieste già fatte non verificate: server non raggiungibile"), verificati ? 3000 : 6000);
 }
-function manuale() { const i = $("#cod"); aggiungi(i.value); i.value = ""; i.focus(); }
+function manuale() { const i = $("#cod"); aggiungi(i.value); i.value = ""; i.focus({ preventScroll: true }); }
 
 function arma() { armato = true; const b = $("#scatta"); b.disabled = true; b.textContent = "Inquadra il codice…"; }
 function disarma() { armato = false; const b = $("#scatta"); if (b) { b.disabled = false; b.innerHTML = ico("scan") + "Scansiona"; } }
-function camSpenta() { $("#cam").innerHTML = ico("camera") + "Avvia fotocamera"; $("#scatta").hidden = true; }
+function camSpenta() { $("#cam").innerHTML = ico("camera") + "Avvia fotocamera"; }
+// il pulsante sta in basso, sotto il pollice: accende la fotocamera se serve e riporta l'inquadratura a schermo
+async function scansiona() {
+  if (!scanner) await toggleCam();
+  if (!scanner) return;
+  $("#reader").scrollIntoView({ block: "center", behavior: "smooth" }); arma();
+}
 async function toggleCam() {
   if (scanner) { await fermaScanner(); return camSpenta(); }
   scanner = new Html5Qrcode("reader");
@@ -445,10 +479,26 @@ async function toggleCam() {
       if (!armato) return; // legge solo dopo il tocco su "Scansiona": niente QR vicini letti per sbaglio
       disarma(); aggiungi(c);
     });
-    $("#cam").innerHTML = ico("chiudi") + "Spegni fotocamera"; disarma(); $("#scatta").hidden = false;
+    $("#cam").innerHTML = ico("chiudi") + "Spegni fotocamera"; disarma();
   } catch (e) { scanner = null; avviso("Fotocamera non disponibile: " + e, 4000); }
 }
 
+// un tocco per il caso normale: prelevato tutto il richiesto (scarico), contato quanto c'è in bolla (carico)
+function pari(r, i) {
+  const v = tipo === "carico" ? r.dichiarata : r.richiesta;
+  return v === undefined || v === "" || Number(v) === r.qta ? "" : `<button class="btn gray small" style="margin-left:auto" onclick="campo(${i},'qta',${Number(v)})">${tipo === "carico" ? "= bolla" : "Tutto"}</button>`;
+}
+// prima di registrare: cosa sta per partire, in una riga
+function riepilogo() {
+  const n = bozza.righe.length, conta = f => bozza.righe.filter(f).length;
+  if (tipo === "scarico" && bozza.ordine) {
+    const fuori = conta(r => r.richiesta === undefined), completi = conta(r => r.richiesta !== undefined && r.qta >= r.richiesta), zero = conta(r => r.richiesta !== undefined && !r.qta && r.richiesta > 0);
+    return `${completi} completi, ${n - fuori - completi - zero} parziali, ${zero} non prelevati${fuori ? `, ${fuori} fuori ordine` : ""}.\n` +
+      (bozza.chiudi ? "L'ordine viene CHIUSO anche se incompleto." : completi < n - fuori ? "L'ordine resta aperto per il residuo." : "");
+  }
+  if (tipo === "carico") { const ko = conta(r => Number(r.dichiarata) !== Number(r.qta)); return `${n} articoli: ${n - ko} conformi, ${ko} NON conformi.`; }
+  return `${n} articoli` + (tipo === "inventario" ? ` contati in ${bozza.riferimento.trim()}.` : ".");
+}
 function stato(r) {
   if (tipo === "scarico" && r.richiesta !== undefined) return r.qta >= r.richiesta ? "ok" : r.qta ? "warn" : "ko";
   if (tipo !== "carico" || r.dichiarata === "") return r.descrizione ? "" : "warn";
@@ -463,13 +513,14 @@ function disegna() {
       <div class="top"><div>${APPS[tipo].catalogo && r.descrizione ? `<b>${esc(r.descrizione)}</b><small>${esc(r.codice)}</small>` : `<b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small>`}</div>
         <button class="icon del" aria-label="Rimuovi" onclick="rimuovi(${i})">${ico("trash")}</button></div>
       ${tipo === "scarico" ? `<button class="ubi ${ubicazioni[r.codice] ? "" : "vuota"}" onclick="modificaUbicazione(${i})">${ico("pin")}${esc(ubicazioni[r.codice]) || "Ubicazione non nota"} <span>Modifica</span></button>` : ""}
+      ${tipo === "inventario" && ubicazioni[r.codice] ? `<div class="meta">${bozza.riferimento.trim() && ubicazioni[r.codice].replace(/ \?$/, "").toUpperCase() !== bozza.riferimento.trim() ? '<span class="badge">ALTROVE</span>' : ""}Ubicazione nota: <strong>${esc(ubicazioni[r.codice])}</strong></div>` : ""}
       ${r.richiesta !== undefined ? `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>` : ""}
       ${tipo === "acquisti" && richiesti[r.codice] ? `<div class="meta"><span class="badge">GIÀ RICHIESTO</span> il ${esc(richiesti[r.codice])}</div>` : ""}
       ${(tipo === "acquisti" || tipo === "scarico") && scorte[r.codice] ? `<div class="meta">Scorta min: <strong>${esc(scorte[r.codice][0]) || "–"}</strong> · max: <strong>${esc(scorte[r.codice][1]) || "–"}</strong></div>` : ""}
       ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>` : ""}
       ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
       ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità" + (um[r.codice] ? ` (${esc(um[r.codice])})` : "")}
-        <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
+        ${pari(r, i)}<div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
         <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
       ${tipo === "scarico" && !foto[r.codice] ? `<button class="btn gray small foto" onclick="scattaFoto(${i}, this)">${ico("camera")}Foto prodotto</button>` : ""}
@@ -523,6 +574,8 @@ async function invia() {
   if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
+  if (!$("#op").value.trim()) return avviso("Scrivi il nome dell'operatore");
+  if (!APPS[tipo].catalogo && !confirm(APPS[tipo].invia + "?\n\n" + riepilogo())) return; // gli ordini reparto hanno già la schermata di riepilogo
   const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
   const rif = bozza.riferimento.trim(), op = $("#op").value.trim(), righeOra = JSON.stringify(bozza.righe);
   // nome e data fissati al primo tentativo: se la risposta si perde, il reinvio porta lo stesso documento e il server non lo registra due volte
@@ -550,9 +603,10 @@ async function invia() {
     return alert("Il primo invio era già arrivato: le modifiche fatte dopo NON sono salvate.\nTogli gli articoli già inviati, lascia solo quelli nuovi e invia di nuovo.");
   }
   // bozza cancellata solo dopo conferma di scrittura del file
+  const fatto = `${APPS[tipo].nome}: ${bozza.righe.length} articoli registrati`;
   bozza = { riferimento: "", righe: [] }; salva(); apri(tipo);
   if (j.avviso === false) avviso("Ordine salvato, ma l'avviso al magazzino NON è partito: chiama il magazziniere", 6000);
-  else avviso(j.avviso ? "Salvato e magazziniere avvisato" : "Salvato: " + j.file, 3000);
+  else avviso(j.avviso ? "Salvato e magazziniere avvisato" : fatto, 5000);
 }
 
 const tok = store.get("token");
