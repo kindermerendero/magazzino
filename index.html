@@ -130,6 +130,9 @@
   .riga > div:first-child { flex: 1; min-width: 0; }
   .riga .stepper button { width: 40px; }
   .riga .stepper input { width: 46px; }
+  .riga .qta { text-align: center; }
+  .riga .qta small { font-size: 12px; }
+  #cat h2 { margin-top: 18px; }
 
   .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
          background: var(--bar); border-top: .5px solid var(--sep); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
@@ -183,7 +186,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [], codici = [];
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [], codici = [], testi = [], tutto = false, reparti = store.get("reparti") || {}, um = store.get("um") || {};
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
@@ -194,6 +197,9 @@ async function caricaProdotti(token) {
   ubicazioni = j.ubicazioni || {}; store.set("ubicazioni", ubicazioni);
   giacenze = j.giacenze || {}; store.set("giacenze", giacenze);
   scorte = j.scorte || {}; store.set("scorte", scorte);
+  // facoltativi: arrivano solo dalla versione di Code.gs con le schede "reparti" e "um"
+  reparti = j.reparti || {}; store.set("reparti", reparti);
+  um = j.um || {}; store.set("um", um);
   foto = j.foto || {}; store.set("foto", foto); return true;
 }
 
@@ -247,6 +253,10 @@ function apri(t) {
   fermaScanner(); tipo = t; const a = APPS[t];
   bozza = store.get("bozza_" + t) || { riferimento: "", righe: [] };
   testata(a.nome, true);
+  // reparto scelto da un elenco e ricordato sul telefono; senza la scheda "reparti" resta il campo libero
+  const nomiReparti = a.catalogo ? Object.keys(reparti) : [];
+  if (nomiReparti.length && !reparti[bozza.riferimento]) bozza.riferimento = reparti[store.get("reparto")] ? store.get("reparto") : "";
+  tutto = false;
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
     ${!DA[t] ? "" : bozza.ordine
@@ -256,7 +266,9 @@ function apri(t) {
       : `<button class="btn gray" style="margin-bottom:20px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>`}
     ${t === "acquisti" ? `<button class="btn gray" style="margin-bottom:20px" onclick="sottoscorta()">${ico("elenco")}Aggiungi articoli sottoscorta</button>` : ""}
     <div class="group">
-      ${a.rif ? `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>` : ""}
+      ${!a.rif ? "" : nomiReparti.length ? `<label class="cell"><span>${a.rif}</span><select id="rif"><option value="">Scegli…</option>${
+        nomiReparti.map(n => `<option ${bozza.riferimento === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`
+      : `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>`}
       <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
       ${t !== "ordini" && t !== "acquisti" ? "" : `
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
@@ -267,10 +279,15 @@ function apri(t) {
       ${t === "scarico" && bozza.ordine ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
     ${a.catalogo ? `
+    <button class="btn gray" style="margin-bottom:20px" onclick="ripeti()">${ico("elenco")}Ripeti ultimo ordine</button>
     <div class="seg"><button id="tabCat" onclick="vista('cat')">Catalogo</button><button id="tabSel" onclick="vista('sel')"></button></div>
     <div id="catalogo">
-      <div class="group"><div class="cell"><input id="cerca" type="search" placeholder="Cerca codice o descrizione" autocorrect="off" oninput="filtra()"></div></div>
+      <div class="group"><div class="cell"><input id="cerca" placeholder="Cerca descrizione o codice" autocorrect="off" enterkeyhint="search" oninput="filtra()">
+        <button class="icon" aria-label="Svuota ricerca" onclick="$('#cerca').value = ''; filtra(); $('#cerca').focus()">${ico("chiudi")}</button></div></div>
+      <button class="btn gray small" id="ambito" style="margin:0 auto 12px" onclick="tutto = !tutto; disegnaCatalogo()"></button>
       <div id="cat"></div>
+      <div id="vuoto" hidden><p class="note" style="margin:16px;text-align:center">Nessun articolo trovato.</p>
+        <button class="btn gray" id="allarga" onclick="tutto = true; disegnaCatalogo()">Cerca in tutto il catalogo</button></div>
     </div>
     <div id="scelti" hidden><h2 id="conta"></h2><div id="lista"></div></div>` : `
     <div class="scan">
@@ -284,9 +301,12 @@ function apri(t) {
     </div></div>
     <h2 id="conta"></h2>
     <div id="lista"></div>`}
-    <div class="bar"><button class="btn" id="invia" onclick="invia()">${a.invia}</button></div>`;
+    <div class="bar"><button class="btn" id="invia" onclick="azione()">${a.invia}</button></div>`;
   if (!a.catalogo) camSpenta();
-  if (a.rif) $("#rif").oninput = e => { bozza.riferimento = e.target.value; salva(); };
+  if (a.rif) $("#rif").oninput = e => {
+    bozza.riferimento = e.target.value; salva();
+    if (e.target.tagName === "SELECT") { store.set("reparto", e.target.value); tutto = false; disegnaCatalogo(); }
+  };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
   if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
@@ -296,25 +316,46 @@ function apri(t) {
   disegna();
 }
 
-// catalogo: tutta l'anagrafica con la quantità accanto, al posto dello scanner. Disegnato una volta, la ricerca nasconde solo le righe
+// catalogo al posto dello scanner: gli articoli del reparto divisi per fornitore (scheda "reparti"), oppure tutta l'anagrafica.
+// Disegnato una volta, la ricerca nasconde solo le righe
 function vista(v) {
   $("#catalogo").hidden = v !== "cat"; $("#scelti").hidden = v === "cat";
   $("#tabCat").className = v === "cat" ? "on" : ""; $("#tabSel").className = v === "cat" ? "" : "on";
-  if (v === "cat") disegnaCatalogo();
+  if (v === "cat") disegnaCatalogo(); else scrollTo(0, 0);
+  barra();
 }
+// dal catalogo il pulsante in basso porta al riepilogo: l'ordine parte solo da lì, dopo averlo visto
+function barra() { $("#invia").textContent = $("#catalogo").hidden ? APPS[tipo].invia : `Rivedi ordine (${bozza.righe.length})`; }
+function azione() {
+  if (!APPS[tipo].catalogo || $("#catalogo").hidden) return invia();
+  if (!bozza.righe.length) return avviso("Nessun articolo: scegli le quantità dal catalogo");
+  vista("sel");
+}
+// ricerca tollerante: contano solo lettere e cifre, così "risbal" trova 3IV.RIS.BAL
+const norm = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
 function disegnaCatalogo() {
-  codici = Object.keys(prodotti).sort((a, b) => a.localeCompare(b));
-  const q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
-  $("#cat").innerHTML = codici.map((c, i) => `
-    <div class="item riga ${q[c] ? "ok" : ""}"><div><b>${esc(c)}</b><small>${esc(prodotti[c])}</small></div>
-      <div class="stepper"><button aria-label="Meno" onclick="qtaCatalogo(${i}, +this.nextElementSibling.value - 1)">−</button>
+  const mio = reparti[bozza.riferimento], q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
+  // [fornitore, codice]: reparto nell'ordine del foglio, altrimenti tutto in ordine di descrizione
+  const voci = mio && !tutto ? mio : Object.keys(prodotti).sort((a, b) => (prodotti[a] || a).localeCompare(prodotti[b] || b)).map(c => ["", c]);
+  codici = voci.map(v => v[1]); testi = codici.map(c => norm(c + (prodotti[c] || "")));
+  $("#ambito").hidden = !mio; $("#ambito").textContent = tutto ? "Solo " + bozza.riferimento : "Tutto il catalogo";
+  $("#allarga").hidden = !mio || tutto;
+  $("#cat").innerHTML = voci.map(([f, c], i) => `${f && f !== voci[i - 1]?.[0] ? `<h2>${esc(f)}</h2>` : ""}
+    <div class="item riga ${q[c] ? "ok" : ""}" data-i="${i}"><div><b>${esc(prodotti[c] || c)}</b><small>${esc(c)}</small></div>
+      <div class="qta"><div class="stepper"><button aria-label="Meno" onclick="qtaCatalogo(${i}, +this.nextElementSibling.value - 1)">−</button>
       <input type="number" inputmode="decimal" aria-label="Quantità" value="${q[c] || 0}" onfocus="this.select()" onchange="qtaCatalogo(${i}, this.value)">
-      <button aria-label="Più" onclick="qtaCatalogo(${i}, +this.previousElementSibling.value + 1)">+</button></div></div>`).join("");
+      <button aria-label="Più" onclick="qtaCatalogo(${i}, +this.previousElementSibling.value + 1)">+</button></div>${um[c] ? `<small>${esc(um[c])}</small>` : ""}</div></div>`).join("");
   filtra();
 }
 function filtra() {
-  const parole = $("#cerca").value.toLowerCase().split(/\s+/).filter(Boolean);
-  [...$("#cat").children].forEach((el, i) => { const t = (codici[i] + " " + prodotti[codici[i]]).toLowerCase(); el.hidden = !parole.every(p => t.includes(p)); });
+  const parole = $("#cerca").value.split(/\s+/).map(norm).filter(Boolean);
+  let titolo = null, trovati = 0;
+  [...$("#cat").children].forEach(el => {
+    if (el.tagName === "H2") { titolo = el; el.hidden = true; return; } // il fornitore resta solo se ha righe visibili
+    el.hidden = !parole.every(p => testi[el.dataset.i].includes(p));
+    if (!el.hidden) { trovati++; if (titolo) titolo.hidden = false; }
+  });
+  $("#vuoto").hidden = trovati > 0;
 }
 // quantità 0 = articolo tolto dall'ordine
 function qtaCatalogo(i, v) {
@@ -322,8 +363,21 @@ function qtaCatalogo(i, v) {
   if (k >= 0 && n) bozza.righe[k].qta = n;
   else if (k >= 0) bozza.righe.splice(k, 1);
   else if (n) bozza.righe.unshift({ codice: c, descrizione: prodotti[c] || "", qta: n, dichiarata: "", giacenza: giacenze[c] ?? "" });
-  const el = $("#cat").children[i]; el.classList.toggle("ok", !!n); el.querySelector("input").value = n;
+  const el = $(`#cat [data-i="${i}"]`); el.classList.toggle("ok", !!n); el.querySelector("input").value = n;
   salva(); disegna();
+}
+// ultimo ordine inviato dal reparto, con le quantità di allora da ritoccare
+async function ripeti() {
+  const rif = bozza.riferimento.trim();
+  if (!rif) return avviso("Scegli prima il reparto");
+  if (bozza.righe.length && !confirm("Sostituire gli articoli già scelti con l'ultimo ordine?")) return;
+  avviso("Carico l'ultimo ordine…", 10000);
+  const j = await fetch(SCRIPT_URL + "?ultimo=" + encodeURIComponent(rif) + "&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
+  if (!j || j.error) return avviso("Ultimo ordine non disponibile: " + (j?.error || "server non raggiungibile"), 4000);
+  if (!("ordine" in j)) return avviso("Funzione non ancora attiva sul server", 4000);
+  if (!j.ordine) return avviso("Nessun ordine precedente per " + rif, 3000);
+  bozza.righe = j.ordine.righe.map(r => ({ codice: r.codice, descrizione: prodotti[r.codice] || r.descrizione, qta: r.qta, dichiarata: "", giacenza: "" }));
+  salva(); vista("sel"); disegna(); avviso(`Ordine del ${j.ordine.data} caricato: controlla le quantità`, 4000);
 }
 
 async function elencoOrdini() {
@@ -403,10 +457,10 @@ function stato(r) {
 function disegna() {
   const n = bozza.righe.length;
   $("#conta").textContent = n ? `Articoli (${n})` : "";
-  if ($("#tabSel")) $("#tabSel").textContent = `Selezionati (${n})`;
+  if ($("#tabSel")) { $("#tabSel").textContent = `Selezionati (${n})`; barra(); }
   $("#lista").innerHTML = n ? bozza.righe.map((r, i) => `
     <div class="item ${stato(r)}">
-      <div class="top"><div><b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small></div>
+      <div class="top"><div>${APPS[tipo].catalogo && r.descrizione ? `<b>${esc(r.descrizione)}</b><small>${esc(r.codice)}</small>` : `<b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small>`}</div>
         <button class="icon del" aria-label="Rimuovi" onclick="rimuovi(${i})">${ico("trash")}</button></div>
       ${tipo === "scarico" ? `<button class="ubi ${ubicazioni[r.codice] ? "" : "vuota"}" onclick="modificaUbicazione(${i})">${ico("pin")}${esc(ubicazioni[r.codice]) || "Ubicazione non nota"} <span>Modifica</span></button>` : ""}
       ${r.richiesta !== undefined ? `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>` : ""}
@@ -414,7 +468,7 @@ function disegna() {
       ${(tipo === "acquisti" || tipo === "scarico") && scorte[r.codice] ? `<div class="meta">Scorta min: <strong>${esc(scorte[r.codice][0]) || "–"}</strong> · max: <strong>${esc(scorte[r.codice][1]) || "–"}</strong></div>` : ""}
       ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>` : ""}
       ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
-      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità"}
+      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità" + (um[r.codice] ? ` (${esc(um[r.codice])})` : "")}
         <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
         <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
