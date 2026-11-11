@@ -122,6 +122,15 @@
   .banner i { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #fff; }
   .banner .icon { color: var(--sec); }
 
+  .seg { display: flex; background: var(--fill); border-radius: 10px; padding: 2px; margin-bottom: 16px; }
+  .seg button { flex: 1; border: 0; background: none; border-radius: 8px; min-height: 36px; font-size: 15px; font-weight: 600; }
+  .seg button.on { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  #catalogo .group { position: sticky; top: calc(52px + env(safe-area-inset-top)); z-index: 4; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+  .riga { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; margin-bottom: 6px; content-visibility: auto; contain-intrinsic-size: auto 72px; }
+  .riga > div:first-child { flex: 1; min-width: 0; }
+  .riga .stepper button { width: 40px; }
+  .riga .stepper input { width: 46px; }
+
   .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
          background: var(--bar); border-top: .5px solid var(--sep); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
   .bar .btn { max-width: 608px; margin: 0 auto; }
@@ -160,7 +169,7 @@ const APPS = {
   carico:     { nome: "Carico",     colore: "#34c759", invia: "Registra carico" },
   scarico:    { nome: "Scarico",    colore: "#ff3b30", invia: "Registra scarico" },
   inventario: { nome: "Inventario", colore: "#007aff", rif: "Ubicazione", invia: "Salva inventario" },
-  ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto", invia: "Invia ordine" },
+  ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto", invia: "Invia ordine", catalogo: true },
   acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500", invia: "Invia richiesta" },
 };
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto, il carico le richieste d'acquisto
@@ -174,7 +183,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [], codici = [];
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
@@ -257,6 +266,13 @@ function apri(t) {
         CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
       ${t === "scarico" && bozza.ordine ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
+    ${a.catalogo ? `
+    <div class="seg"><button id="tabCat" onclick="vista('cat')">Catalogo</button><button id="tabSel" onclick="vista('sel')"></button></div>
+    <div id="catalogo">
+      <div class="group"><div class="cell"><input id="cerca" type="search" placeholder="Cerca codice o descrizione" autocorrect="off" oninput="filtra()"></div></div>
+      <div id="cat"></div>
+    </div>
+    <div id="scelti" hidden><h2 id="conta"></h2><div id="lista"></div></div>` : `
     <div class="scan">
       <div id="reader"></div>
       <button class="btn" id="scatta" hidden onclick="arma()"></button>
@@ -267,17 +283,47 @@ function apri(t) {
       <button class="icon" aria-label="Aggiungi" onclick="manuale()" style="color:var(--tint);font-size:28px;line-height:1">+</button>
     </div></div>
     <h2 id="conta"></h2>
-    <div id="lista"></div>
+    <div id="lista"></div>`}
     <div class="bar"><button class="btn" id="invia" onclick="invia()">${a.invia}</button></div>`;
-  camSpenta();
+  if (!a.catalogo) camSpenta();
   if (a.rif) $("#rif").oninput = e => { bozza.riferimento = e.target.value; salva(); };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
   if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
   if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
-  $("#cod").onkeydown = e => { if (e.key === "Enter") manuale(); };
+  if (a.catalogo) vista("cat"); else $("#cod").onkeydown = e => { if (e.key === "Enter") manuale(); };
   disegna();
+}
+
+// catalogo: tutta l'anagrafica con la quantità accanto, al posto dello scanner. Disegnato una volta, la ricerca nasconde solo le righe
+function vista(v) {
+  $("#catalogo").hidden = v !== "cat"; $("#scelti").hidden = v === "cat";
+  $("#tabCat").className = v === "cat" ? "on" : ""; $("#tabSel").className = v === "cat" ? "" : "on";
+  if (v === "cat") disegnaCatalogo();
+}
+function disegnaCatalogo() {
+  codici = Object.keys(prodotti).sort((a, b) => a.localeCompare(b));
+  const q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
+  $("#cat").innerHTML = codici.map((c, i) => `
+    <div class="item riga ${q[c] ? "ok" : ""}"><div><b>${esc(c)}</b><small>${esc(prodotti[c])}</small></div>
+      <div class="stepper"><button aria-label="Meno" onclick="qtaCatalogo(${i}, +this.nextElementSibling.value - 1)">−</button>
+      <input type="number" inputmode="decimal" aria-label="Quantità" value="${q[c] || 0}" onfocus="this.select()" onchange="qtaCatalogo(${i}, this.value)">
+      <button aria-label="Più" onclick="qtaCatalogo(${i}, +this.previousElementSibling.value + 1)">+</button></div></div>`).join("");
+  filtra();
+}
+function filtra() {
+  const parole = $("#cerca").value.toLowerCase().split(/\s+/).filter(Boolean);
+  [...$("#cat").children].forEach((el, i) => { const t = (codici[i] + " " + prodotti[codici[i]]).toLowerCase(); el.hidden = !parole.every(p => t.includes(p)); });
+}
+// quantità 0 = articolo tolto dall'ordine
+function qtaCatalogo(i, v) {
+  const c = codici[i], n = Math.max(0, Number(v) || 0), k = bozza.righe.findIndex(r => r.codice === c);
+  if (k >= 0 && n) bozza.righe[k].qta = n;
+  else if (k >= 0) bozza.righe.splice(k, 1);
+  else if (n) bozza.righe.unshift({ codice: c, descrizione: prodotti[c] || "", qta: n, dichiarata: "", giacenza: giacenze[c] ?? "" });
+  const el = $("#cat").children[i]; el.classList.toggle("ok", !!n); el.querySelector("input").value = n;
+  salva(); disegna();
 }
 
 async function elencoOrdini() {
@@ -357,6 +403,7 @@ function stato(r) {
 function disegna() {
   const n = bozza.righe.length;
   $("#conta").textContent = n ? `Articoli (${n})` : "";
+  if ($("#tabSel")) $("#tabSel").textContent = `Selezionati (${n})`;
   $("#lista").innerHTML = n ? bozza.righe.map((r, i) => `
     <div class="item ${stato(r)}">
       <div class="top"><div><b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small></div>
@@ -372,7 +419,7 @@ function disegna() {
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
         <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
       ${tipo === "scarico" && !foto[r.codice] ? `<button class="btn gray small foto" onclick="scattaFoto(${i}, this)">${ico("camera")}Foto prodotto</button>` : ""}
-    </div>`).join("") : `<p class="note" style="margin:0 16px;text-align:center">Nessun articolo: scansiona un codice o scrivilo a mano.</p>`;
+    </div>`).join("") : `<p class="note" style="margin:0 16px;text-align:center">${APPS[tipo].catalogo ? "Nessun articolo: scegli le quantità dal catalogo." : "Nessun articolo: scansiona un codice o scrivilo a mano."}</p>`;
 }
 
 async function modificaUbicazione(i) {
