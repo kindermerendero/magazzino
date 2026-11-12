@@ -283,7 +283,7 @@ function disegnaAdmin(errore) {
       <div><b>${perc(k.evasione)}</b>Evasione completa<small>su ${k.righeOrdine} righe d'ordine prelevate</small></div>
       <div><b>${k.tempo == null ? "—" : k.tempo < 48 ? Math.round(k.tempo) + " h" : Math.round(k.tempo / 24) + " g"}</b>Tempo medio di evasione<small>su ${k.evasi} ordini chiusi</small></div>
       <div><b>${acq.length}</b>Richieste d'acquisto aperte</div>
-      <div><b>${k.daRichiedere.length}</b>Sottoscorta da richiedere<small>su ${k.sotto} sottoscorta</small></div>
+      <div><b>${k.contati ? k.daRichiedere.length : "—"}</b>Sottoscorta da richiedere<small>${k.contati ? `su ${k.sotto} sottoscorta, fra i ${k.contati} codici contati` : "giacenze ignote fino al primo inventario"}</small></div>
       <div><b>${perc(k.nonConformi)}</b>Non conformità al carico<small>su ${k.carichi} righe con bolla</small></div>
       <div><b>${perc(k.copertura)}</b>Copertura inventario<small>${k.contati} codici contati su ${Object.keys(prodotti).length}</small></div>
       <div><b>${docOggi}</b>Documenti registrati oggi</div></div>
@@ -300,7 +300,7 @@ function disegnaAdmin(errore) {
     <section><h2>Sottoscorta da richiedere</h2>
       ${tab("tSot", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], k.daRichiedere.map(c =>
         `<tr class="sotto"><td>${esc(c)}</td><td>${esc(prodotti[c])}</td><td class="n">${num(giacenze[c])}</td><td class="n">${num(scorte[c][0])}</td><td class="n">${num(scorte[c][1])}</td></tr>`).join(""),
-        k.sotto ? "Tutti i sottoscorta sono già in una richiesta d'acquisto aperta" : "Nessun articolo sotto la scorta minima fra quelli con giacenza nota")}</section></div>
+        !k.contati ? "Giacenze non ancora note: il sottoscorta si vedrà dopo il primo inventario fatto dall'app" : k.sotto ? "Tutti i sottoscorta sono già in una richiesta d'acquisto aperta" : "Nessun articolo sotto la scorta minima fra quelli con giacenza nota")}</section></div>
     <div class="due"><section><h2>Consumo per reparto</h2>
       ${tab("tRep", ["Reparto", "#Prelievi", "#Codici diversi"], k.reparti.map(x =>
         `<tr><td>${esc(x.reparto)}</td><td class="n">${x.prelievi}</td><td class="n">${x.codici}</td></tr>`).join(""), "Nessuno scarico nel periodo")}</section>
