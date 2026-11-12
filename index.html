@@ -271,7 +271,8 @@ function disegnaAdmin(errore) {
   const sotto = c => scorte[c] && scorte[c][0] !== "" && giacenze[c] < scorte[c][0];
   const codici = Object.keys(giacenze).sort((a, b) => !!sotto(b) - !!sotto(a) || a.localeCompare(b));
   const k = kpi(dati.movimenti, dati.aperti, giacenze, scorte, Object.keys(prodotti).length, new Date(), admin.giorni), perc = v => v == null ? "—" : v + "%";
-  const mov = dati.movimenti.slice().reverse(), docOggi = new Set(mov.filter(m => m[1].split(",")[0] === oggi).map(m => m[0])).size;
+  const mov = dati.movimenti.filter(m => m[0]).reverse(), // senza le righe vuote rimaste nel foglio
+        docOggi = new Set(mov.filter(m => m[1].split(",")[0] === oggi).map(m => m[0])).size;
   const capo = (o, col) => `<tr class="capo"><td colspan="${col}">${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}
     · ${esc(o.data)} · ${esc(o.operatore)}${o.urgente && o.motivo ? " · " + esc(o.motivo) : ""}</td></tr>`;
   const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><thead><tr>${testa.map(t => `<th${t[0] === "#" ? ' class="n"' : ""}>${t.replace("#", "")}</th>`).join("")}</tr></thead>
