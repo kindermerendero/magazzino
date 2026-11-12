@@ -117,6 +117,26 @@
   .item .badge { background: #ff9500 !important; }
   .ordine .badge, .item .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
   .ordine svg { color: var(--sec); width: 18px; }
+  /* dashboard admin: tabelle larghe, per lo schermo del computer */
+  main.admin { max-width: 1500px; padding-bottom: 40px; }
+  .kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi div { background: var(--card); border-radius: 12px; padding: 14px 16px; color: var(--sec); font-size: 14px; }
+  .kpi b { display: block; font-size: 30px; color: var(--label); }
+  .due { display: grid; gap: 0 20px; }
+  @media (min-width: 1100px) { .due { grid-template-columns: 1fr 1fr; align-items: start; } }
+  .admin h2 { font-size: 20px; margin: 8px 4px 10px; display: flex; align-items: center; gap: 12px; }
+  .admin h2 input { margin-left: auto; font: inherit; font-size: 15px; font-weight: 400; width: 280px; max-width: 50%; padding: 6px 10px; border: 0; border-radius: 8px;
+                    background: var(--fill); color: var(--label); outline: none; }
+  .tab { background: var(--card); border-radius: 12px; margin-bottom: 24px; overflow: auto; max-height: 70vh; }
+  .tab table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tab th, .tab td { text-align: left; padding: 7px 12px; border-bottom: .5px solid var(--sep); vertical-align: top; }
+  .tab th { position: sticky; top: 0; background: var(--card); color: var(--sec); font-weight: 600; white-space: nowrap; }
+  .tab td.n, .tab th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tab tr.capo td { background: var(--fill); font-weight: 600; }
+  .tab tr.sotto td.n { color: var(--red); font-weight: 600; }
+  .tab .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
+  .tab p { margin: 0; padding: 14px 16px; color: var(--sec); font-size: 15px; }
+
   .banner { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; }
   .banner > div { flex: 1; }
   .banner i { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #fff; }
@@ -195,7 +215,7 @@ function testata(titolo, conIndietro) {
 }
 
 function accesso() {
-  testata("Magazzino", false);
+  testata("Magazzino", false); $("#main").className = "";
   $("#main").innerHTML = `<div class="group"><div class="cell"><span>Codice</span>
       <input id="tok" type="password" placeholder="Codice di accesso" autocapitalize="none" autocorrect="off" enterkeyhint="go">
       <button class="icon" aria-label="Mostra codice" onclick="const t=$('#tok'); t.type = t.type === 'password' ? 'text' : 'password'">${ico("occhio")}</button></div></div>
@@ -222,11 +242,61 @@ async function fermaScanner() {
 
 async function home() {
   await fermaScanner(); tipo = null;
+  if (permesse.includes("admin")) return admin();
   testata("Magazzino", false);
   // il server rifiuta comunque le funzioni non consentite: qui si nascondono solo i riquadri
   $("#main").innerHTML = `<div class="grid">${Object.entries(APPS).filter(([k]) => permesse.includes(k)).map(([k, a]) =>
     `<button class="tile" onclick="apri('${k}')"><i style="background:${a.colore}">${ico(k)}</i>${a.nome}</button>`).join("")}</div>
     <button class="link" onclick="esci()">Cambia codice di accesso</button>`;
+}
+// dashboard (codice admin): sola lettura, pensata per lo schermo del computer
+let dati = null;
+async function admin() {
+  testata("Dashboard magazzino", false); $("#main").className = "admin";
+  if (admin.attivo) return; admin.attivo = true;
+  if (!dati) $("#main").innerHTML = `<div class="tab"><p>Caricamento…</p></div>`;
+  const j = await fetch(SCRIPT_URL + "?admin=1&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
+  admin.attivo = false;
+  if (!permesse.includes("admin") || !store.get("token")) return; // nel frattempo è uscito
+  if (j && !j.error) dati = j;
+  if (!dati) return $("#main").innerHTML = `<div class="tab"><p>Dati non disponibili: ${esc(j?.error || "server non raggiungibile")}</p></div>
+    <button class="link" onclick="admin()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
+  disegnaAdmin(j && !j.error ? "" : "Aggiornamento non riuscito: " + (j?.error || "server non raggiungibile"));
+}
+function disegnaAdmin(errore) {
+  const oggi = new Date().toLocaleDateString("it-IT", { dateStyle: "short" }), num = v => v === "" || v == null ? "" : esc(v);
+  const ord = dati.aperti.filter(o => o.tipo === "ordini").sort((a, b) => !!b.urgente - !!a.urgente), acq = dati.aperti.filter(o => o.tipo === "acquisti");
+  const sotto = c => scorte[c] && scorte[c][0] !== "" && giacenze[c] < scorte[c][0];
+  const codici = Object.keys(giacenze).sort((a, b) => !!sotto(b) - !!sotto(a) || a.localeCompare(b)), nSotto = codici.filter(sotto).length;
+  const mov = dati.movimenti.slice().reverse(), docOggi = new Set(mov.filter(m => m[1].split(",")[0] === oggi).map(m => m[0])).size;
+  const capo = (o, col) => `<tr class="capo"><td colspan="${col}">${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}
+    · ${esc(o.data)} · ${esc(o.operatore)}${o.urgente && o.motivo ? " · " + esc(o.motivo) : ""}</td></tr>`;
+  const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><thead><tr>${testa.map(t => `<th${t[0] === "#" ? ' class="n"' : ""}>${t.replace("#", "")}</th>`).join("")}</tr></thead>
+    <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
+  $("#main").innerHTML = `
+    <div class="kpi"><div><b>${ord.length}</b>Ordini reparto aperti${ord.some(o => o.urgente) ? ` · <span class="red">${ord.filter(o => o.urgente).length} urgenti</span>` : ""}</div>
+      <div><b>${acq.length}</b>Richieste d'acquisto aperte</div><div><b>${nSotto}</b>Articoli sottoscorta</div><div><b>${docOggi}</b>Documenti registrati oggi</div></div>
+    ${errore ? `<p class="note red" style="margin:0 4px 16px">${esc(errore)}</p>` : ""}
+    <div class="due"><section><h2>Ordini reparto aperti</h2>
+      ${tab("tOrd", ["Codice", "Descrizione", "Ubicazione", "#Da evadere", "#Giacenza"], ord.map(o => capo(o, 5) + o.righe.map(r =>
+        `<tr><td>${esc(r.codice)}</td><td>${esc(r.descrizione)}</td><td>${esc(ubicazioni[r.codice])}</td><td class="n">${num(r.qta)}</td><td class="n">${num(giacenze[r.codice])}</td></tr>`).join("")).join(""), "Nessun ordine aperto")}</section>
+    <section><h2>Richieste d'acquisto aperte</h2>
+      ${tab("tAcq", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], acq.map(o => capo(o, 5) + o.righe.map(r =>
+        `<tr class="${sotto(r.codice) ? "sotto" : ""}"><td>${esc(r.codice)}</td><td>${esc(r.descrizione)}</td><td class="n">${num(giacenze[r.codice])}</td><td class="n">${num(scorte[r.codice]?.[0])}</td><td class="n">${num(scorte[r.codice]?.[1])}</td></tr>`).join("")).join(""), "Nessuna richiesta aperta")}</section></div>
+    <h2>Giacenze <input type="search" placeholder="Cerca codice, descrizione, ubicazione" oninput="cerca(this, 'tGia')"></h2>
+    ${tab("tGia", ["Codice", "Descrizione", "Ubicazione", "#Giacenza", "#Scorta min", "#Scorta max"], codici.map(c =>
+      `<tr class="${sotto(c) ? "sotto" : ""}"><td>${esc(c)}</td><td>${esc(prodotti[c])}</td><td>${esc(ubicazioni[c])}</td><td class="n">${num(giacenze[c])}</td><td class="n">${num(scorte[c]?.[0])}</td><td class="n">${num(scorte[c]?.[1])}</td></tr>`).join(""),
+      "Nessuna giacenza nota: un codice compare qui dopo il primo inventario fatto dall'app")}
+    <h2>Ultimi movimenti <input type="search" placeholder="Cerca data, tipo, operatore, reparto, codice…" oninput="cerca(this, 'tMov')"></h2>
+    ${tab("tMov", ["Data", "Tipo", "Operatore", "Rif", "Codice", "Descrizione", "#Qta", "#Attesa", "Motivo", "Documento"], mov.map(m =>
+      `<tr><td>${esc(m[1])}</td><td>${m[10] === "SI" ? '<span class="badge">URGENTE</span>' : ""}${esc(m[2])}</td><td>${esc(m[3])}</td><td>${esc(m[4])}</td><td>${esc(m[5])}</td><td>${esc(m[6])}</td><td class="n">${esc(m[7])}</td><td class="n">${esc(m[8])}</td><td>${esc(m[11])}</td><td>${esc(m[0])}</td></tr>`).join(""),
+      "Nessun movimento registrato")}
+    <button class="link" onclick="caricaProdotti(store.get('token')).then(admin)">Aggiorna</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
+}
+// filtro delle tabelle: tutte le parole cercate devono comparire nella riga (le righe d'intestazione degli ordini restano)
+function cerca(campo, id) {
+  const parole = campo.value.toLowerCase().split(/\s+/).filter(Boolean);
+  document.querySelectorAll(`#${id} tr:not(.capo)`).forEach(tr => { const t = tr.textContent.toLowerCase(); tr.hidden = !parole.every(p => t.includes(p)); });
 }
 function esci() {
   if (!confirm("Uscire? Servirà di nuovo il codice di accesso.")) return;
