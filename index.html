@@ -168,7 +168,7 @@ const APPS = {
 const CAUSALI = ["Produzione", "Ricambi", "Ricavi Commerciali"];
 const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" }, carico: { aperti: "acquisti", nome: "richiesta d'acquisto", icona: "acquisti" } };
 // URL della distribuzione Apps Script (Distribuisci > Applicazione web)
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyTPOkCB28INWWQgK7CcP8pGIuwxJg_jvk-OxIVAbgadqml9J6At4d8NooJVZrUd99VPA/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwauZ4QjFEEO0D8Pkv1GLkPb9pYnHsXo3vjhU9dVu5NmJpw7hMIK_JvHcinkZQwD03ayA/exec"; // distribuzione di prova
 const $ = s => document.querySelector(s);
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -284,20 +284,20 @@ async function elencoOrdini() {
   $("#conta").textContent = "Caricamento…"; $("#lista").innerHTML = "";
   const j = await fetch(SCRIPT_URL + "?aperti=" + DA[tipo].aperti + "&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
   if (!j || j.error) return disegna(), avviso("Elenco non disponibile: " + (j?.error || "server non raggiungibile"), 3000);
-  ordini = j.ordini.sort((a, b) => !!b.urgente - !!a.urgente); // urgenti in cima, poi dal più vecchio
+  ordini = (tipo === "scarico" ? unisci(j.ordini) : j.ordini).sort((a, b) => !!b.urgente - !!a.urgente); // urgenti in cima, poi dal più vecchio
   if (!ordini.length) return disegna(), avviso("Nessuna " + DA[tipo].nome + " aperta");
   $("#conta").textContent = `Da richiamare (${ordini.length})`;
   $("#lista").innerHTML = ordini.map((o, i) => `
     <button class="ordine" onclick="evadi(${i})"><div>
       <b>${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}</b>
-      ${o.urgente && o.motivo ? `<small>${esc(o.motivo)}</small>` : ""}
-      <small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}</small></div>${ico("avanti")}</button>`).join("");
+      ${o.urgente && (o.motivi?.join(" · ") || o.motivo) ? `<small>${esc(o.motivi?.join(" · ") || o.motivo)}</small>` : ""}
+      <small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}${o.ids?.length > 1 ? ` · <b>${o.ids.length} ordini uniti</b>` : ""}</small></div>${ico("avanti")}</button>`).join("");
 }
 function evadi(i) {
   if (bozza.righe.length && !confirm("Sostituire gli articoli già scansionati con la " + DA[tipo].nome + "?")) return;
   const o = ordini[i];
-  bozza = { riferimento: o.reparto, ordine: o.id, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti"),
-            righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, qta: 0, dichiarata: "" })) };
+  bozza = { riferimento: o.reparto, ordine: o.id, ordini: o.ids, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti") + (o.ids?.length > 1 ? ` (${o.ids.length} ordini uniti)` : ""),
+            righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, parti: r.parti, qta: 0, dichiarata: "" })) };
   salva(); apri(tipo);
 }
 function sganciaOrdine() {
@@ -438,9 +438,10 @@ async function invia() {
   const j = await fetch(SCRIPT_URL, {
     method: "POST", headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({ token: store.get("token"), tipo, nome, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }),
-      ordine: bozza.ordine, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : tipo === "scarico" ? bozza.causale : "",
-      righe: bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: tipo === "acquisti" ? "" : r.qta,
-        attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : "" })) }),
+      ordine: bozza.ordine, ordini: bozza.ordini, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : tipo === "scarico" ? bozza.causale : "",
+      // riga unita da più ordini: una riga di movimento per ciascun ordine di partenza (l'Excel resta con una riga sola)
+      righe: bozza.righe.flatMap(r => (r.parti ? ripartisci(r.qta, r.parti) : [{ qta: tipo === "acquisti" ? "" : r.qta,
+        attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : "" }]).map(x => ({ codice: r.codice, descrizione: r.descrizione, ...x }))) }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = APPS[tipo].invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
   // il primo invio era arrivato, ma nel frattempo la bozza è cambiata: quelle modifiche non sono sul server
