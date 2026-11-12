@@ -125,8 +125,10 @@
   .due { display: grid; gap: 0 20px; }
   @media (min-width: 1100px) { .due { grid-template-columns: 1fr 1fr; align-items: start; } }
   .admin h2 { font-size: 20px; margin: 8px 4px 10px; display: flex; align-items: center; gap: 12px; }
-  .admin h2 input { margin-left: auto; font: inherit; font-size: 15px; font-weight: 400; width: 280px; max-width: 50%; padding: 6px 10px; border: 0; border-radius: 8px;
+  .admin h2 input, .admin h2 select { margin-left: auto; font: inherit; font-size: 15px; font-weight: 400; width: 280px; max-width: 50%; padding: 6px 10px; border: 0; border-radius: 8px;
                     background: var(--fill); color: var(--label); outline: none; }
+  .admin h2 select { width: auto; }
+  .kpi small { display: block; margin-top: 2px; }
   .tab { background: var(--card); border-radius: 12px; margin-bottom: 24px; overflow: auto; max-height: 70vh; }
   .tab table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .tab th, .tab td { text-align: left; padding: 7px 12px; border-bottom: .5px solid var(--sep); vertical-align: top; }
@@ -255,7 +257,7 @@ async function admin() {
   testata("Dashboard magazzino", false); $("#main").className = "admin";
   if (admin.attivo) return; admin.attivo = true;
   if (!dati) $("#main").innerHTML = `<div class="tab"><p>Caricamento…</p></div>`;
-  const j = await fetch(SCRIPT_URL + "?admin=1&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
+  const j = await fetch(SCRIPT_URL + "?admin=1&giorni=" + (admin.giorni = admin.giorni || 30) + "&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
   admin.attivo = false;
   if (!permesse.includes("admin") || !store.get("token")) return; // nel frattempo è uscito
   if (j && !j.error) dati = j;
@@ -267,15 +269,24 @@ function disegnaAdmin(errore) {
   const oggi = new Date().toLocaleDateString("it-IT", { dateStyle: "short" }), num = v => v === "" || v == null ? "" : esc(v);
   const ord = dati.aperti.filter(o => o.tipo === "ordini").sort((a, b) => !!b.urgente - !!a.urgente), acq = dati.aperti.filter(o => o.tipo === "acquisti");
   const sotto = c => scorte[c] && scorte[c][0] !== "" && giacenze[c] < scorte[c][0];
-  const codici = Object.keys(giacenze).sort((a, b) => !!sotto(b) - !!sotto(a) || a.localeCompare(b)), nSotto = codici.filter(sotto).length;
+  const codici = Object.keys(giacenze).sort((a, b) => !!sotto(b) - !!sotto(a) || a.localeCompare(b));
+  const k = kpi(dati.movimenti, dati.aperti, giacenze, scorte, Object.keys(prodotti).length, new Date(), admin.giorni), perc = v => v == null ? "—" : v + "%";
   const mov = dati.movimenti.slice().reverse(), docOggi = new Set(mov.filter(m => m[1].split(",")[0] === oggi).map(m => m[0])).size;
   const capo = (o, col) => `<tr class="capo"><td colspan="${col}">${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}
     · ${esc(o.data)} · ${esc(o.operatore)}${o.urgente && o.motivo ? " · " + esc(o.motivo) : ""}</td></tr>`;
   const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><thead><tr>${testa.map(t => `<th${t[0] === "#" ? ' class="n"' : ""}>${t.replace("#", "")}</th>`).join("")}</tr></thead>
     <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
   $("#main").innerHTML = `
-    <div class="kpi"><div><b>${ord.length}</b>Ordini reparto aperti${ord.some(o => o.urgente) ? ` · <span class="red">${ord.filter(o => o.urgente).length} urgenti</span>` : ""}</div>
-      <div><b>${acq.length}</b>Richieste d'acquisto aperte</div><div><b>${nSotto}</b>Articoli sottoscorta</div><div><b>${docOggi}</b>Documenti registrati oggi</div></div>
+    <h2>Indicatori <select onchange="admin.giorni = +this.value; admin()">${[7, 30, 90, 365].map(g => `<option value="${g}" ${g === admin.giorni ? "selected" : ""}>Ultimi ${g} giorni</option>`).join("")}</select></h2>
+    <div class="kpi"><div><b>${ord.length}</b>Ordini reparto aperti<small>${ord.filter(o => o.urgente).length} urgenti</small></div>
+      <div><b>${k.vecchi}</b>Aperti da più di un giorno<small>${k.vecchi ? `il più vecchio da ${k.piuVecchio} giorni` : "nessuno in attesa"}</small></div>
+      <div><b>${perc(k.evasione)}</b>Evasione completa<small>su ${k.righeOrdine} righe d'ordine prelevate</small></div>
+      <div><b>${k.tempo == null ? "—" : k.tempo < 48 ? Math.round(k.tempo) + " h" : Math.round(k.tempo / 24) + " g"}</b>Tempo medio di evasione<small>su ${k.evasi} ordini chiusi</small></div>
+      <div><b>${acq.length}</b>Richieste d'acquisto aperte</div>
+      <div><b>${k.daRichiedere.length}</b>Sottoscorta da richiedere<small>su ${k.sotto} sottoscorta</small></div>
+      <div><b>${perc(k.nonConformi)}</b>Non conformità al carico<small>su ${k.carichi} righe con bolla</small></div>
+      <div><b>${perc(k.copertura)}</b>Copertura inventario<small>${k.contati} codici contati su ${Object.keys(prodotti).length}</small></div>
+      <div><b>${docOggi}</b>Documenti registrati oggi</div></div>
     ${errore ? `<p class="note red" style="margin:0 4px 16px">${esc(errore)}</p>` : ""}
     <div class="due"><section><h2>Ordini reparto aperti</h2>
       ${tab("tOrd", ["Codice", "Descrizione", "Ubicazione", "#Da evadere", "#Giacenza"], ord.map(o => capo(o, 5) + o.righe.map(r =>
@@ -283,11 +294,28 @@ function disegnaAdmin(errore) {
     <section><h2>Richieste d'acquisto aperte</h2>
       ${tab("tAcq", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], acq.map(o => capo(o, 5) + o.righe.map(r =>
         `<tr class="${sotto(r.codice) ? "sotto" : ""}"><td>${esc(r.codice)}</td><td>${esc(r.descrizione)}</td><td class="n">${num(giacenze[r.codice])}</td><td class="n">${num(scorte[r.codice]?.[0])}</td><td class="n">${num(scorte[r.codice]?.[1])}</td></tr>`).join("")).join(""), "Nessuna richiesta aperta")}</section></div>
+    <div class="due"><section><h2>Articoli più mancanti</h2>
+      ${tab("tMan", ["Codice", "Descrizione", "#Volte", "#Quantità mancata", "#Giacenza"], k.mancanti.map(x =>
+        `<tr><td>${esc(x.codice)}</td><td>${esc(x.descrizione)}</td><td class="n">${x.volte}</td><td class="n">${x.qta}</td><td class="n">${num(giacenze[x.codice])}</td></tr>`).join(""), "Nessuna riga d'ordine rimasta scoperta nel periodo")}</section>
+    <section><h2>Sottoscorta da richiedere</h2>
+      ${tab("tSot", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], k.daRichiedere.map(c =>
+        `<tr class="sotto"><td>${esc(c)}</td><td>${esc(prodotti[c])}</td><td class="n">${num(giacenze[c])}</td><td class="n">${num(scorte[c][0])}</td><td class="n">${num(scorte[c][1])}</td></tr>`).join(""),
+        k.sotto ? "Tutti i sottoscorta sono già in una richiesta d'acquisto aperta" : "Nessun articolo sotto la scorta minima fra quelli con giacenza nota")}</section></div>
+    <div class="due"><section><h2>Consumo per reparto</h2>
+      ${tab("tRep", ["Reparto", "#Prelievi", "#Codici diversi"], k.reparti.map(x =>
+        `<tr><td>${esc(x.reparto)}</td><td class="n">${x.prelievi}</td><td class="n">${x.codici}</td></tr>`).join(""), "Nessuno scarico nel periodo")}</section>
+    <section><h2>Articoli più scaricati</h2>
+      ${tab("tArt", ["Codice", "Descrizione", "#Prelievi", "#Quantità"], k.articoli.map(x =>
+        `<tr><td>${esc(x.codice)}</td><td>${esc(x.descrizione)}</td><td class="n">${x.prelievi}</td><td class="n">${x.qta}</td></tr>`).join(""), "Nessuno scarico nel periodo")}</section></div>
+    <h2>Carichi non conformi</h2>
+    ${tab("tNc", ["Data", "Operatore", "Codice", "Descrizione", "#Bolla", "#Contata", "#Differenza"], k.righeNC.map(m =>
+      `<tr><td>${esc(m[1])}</td><td>${esc(m[3])}</td><td>${esc(m[5])}</td><td>${esc(m[6])}</td><td class="n">${esc(m[8])}</td><td class="n">${esc(m[7])}</td><td class="n">${Math.round((Number(m[7]) - Number(m[8])) * 1000) / 1000}</td></tr>`).join(""),
+      "Nessun carico diverso dalla bolla nel periodo")}
     <h2>Giacenze <input type="search" placeholder="Cerca codice, descrizione, ubicazione" oninput="cerca(this, 'tGia')"></h2>
     ${tab("tGia", ["Codice", "Descrizione", "Ubicazione", "#Giacenza", "#Scorta min", "#Scorta max"], codici.map(c =>
       `<tr class="${sotto(c) ? "sotto" : ""}"><td>${esc(c)}</td><td>${esc(prodotti[c])}</td><td>${esc(ubicazioni[c])}</td><td class="n">${num(giacenze[c])}</td><td class="n">${num(scorte[c]?.[0])}</td><td class="n">${num(scorte[c]?.[1])}</td></tr>`).join(""),
       "Nessuna giacenza nota: un codice compare qui dopo il primo inventario fatto dall'app")}
-    <h2>Ultimi movimenti <input type="search" placeholder="Cerca data, tipo, operatore, reparto, codice…" oninput="cerca(this, 'tMov')"></h2>
+    <h2>Movimenti <input type="search" placeholder="Cerca data, tipo, operatore, reparto, codice…" oninput="cerca(this, 'tMov')"></h2>
     ${tab("tMov", ["Data", "Tipo", "Operatore", "Rif", "Codice", "Descrizione", "#Qta", "#Attesa", "Motivo", "Documento"], mov.map(m =>
       `<tr><td>${esc(m[1])}</td><td>${m[10] === "SI" ? '<span class="badge">URGENTE</span>' : ""}${esc(m[2])}</td><td>${esc(m[3])}</td><td>${esc(m[4])}</td><td>${esc(m[5])}</td><td>${esc(m[6])}</td><td class="n">${esc(m[7])}</td><td class="n">${esc(m[8])}</td><td>${esc(m[11])}</td><td>${esc(m[0])}</td></tr>`).join(""),
       "Nessun movimento registrato")}
