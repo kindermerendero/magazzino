@@ -188,7 +188,7 @@ const APPS = {
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto, il carico le richieste d'acquisto
 // motivo dello scarico, obbligatorio: finisce nell'Excel, nel nome del file e nella colonna Motivo dei movimenti
 const CAUSALI = ["Produzione", "Ricambi", "Ricavi Commerciali"];
-const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" }, carico: { aperti: "acquisti", nome: "richiesta d'acquisto", icona: "acquisti" } };
+const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" }, carico: { aperti: "acquisti,bolla", nome: "bolla o richiesta d'acquisto", icona: "acquisti" } };
 // URL della distribuzione Apps Script (Distribuisci > Applicazione web)
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyTPOkCB28INWWQgK7CcP8pGIuwxJg_jvk-OxIVAbgadqml9J6At4d8NooJVZrUd99VPA/exec";
 const $ = s => document.querySelector(s);
@@ -276,33 +276,39 @@ const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><th
   <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
 
 // ufficio acquisti (permesso "giacenze"): sola lettura da computer, un magazzino alla volta scelto dal menu
-// DDT esportato da Giove ("D.d.T. Ricevuto a Magazzino", .XLS): diventa un carico senza che il magazziniere scansioni.
-// Su Giove è già registrato: l'Excel va solo in bolle/ come archivio; il nome del documento (fornitore + numero) blocca il doppio caricamento
+// DDT esportato da Giove (.XLS): diventa una bolla aperta che il magazziniere richiama nel Carico, controlla e registra.
+// L'Excel va solo in bolle/ come archivio; il nome del documento (fornitore + numero) blocca il doppio caricamento
 async function caricaBolla(input) {
-  const file = input.files[0]; input.value = ""; if (!file) return;
-  let rows;
-  try { const wb = XLSX.read(await file.arrayBuffer()); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }); }
-  catch { return alert("File non leggibile: serve l'export .XLS della bolla da Giove"); }
-  const t = x => String(x ?? "").trim(), riga = testo => rows.findIndex(r => t(r[0]) === testo);
-  const iDoc = riga("TIPO DOCUMENTO"), iArt = riga("CODICE ARTICOLO");
-  if (iDoc < 0 || iArt < 0) return alert("Non sembra una bolla di Giove: mancano TIPO DOCUMENTO o CODICE ARTICOLO");
-  const fornitore = t(rows[1]?.[0]), numero = t(rows[iDoc + 2]?.[3]), dataDoc = t(rows[iDoc + 2]?.[4]);
-  // la quantità sta sotto "QUANTITA'" o nella colonna prima (dipende dalle celle unite); righe senza quantità = intestazioni ripetute
-  const righe = rows.slice(iArt + 1).map(r => ({ codice: t(r[0]), descrizione: t(r[3]), qta: Number(t(r[10] || r[11]).replace(",", ".")) }))
-    .filter(r => r.codice && r.qta > 0);
-  if (!righe.length) return alert("Nessun articolo con quantità nella bolla");
-  const mag = vistaAcquisti.mag || "", ignoti = righe.filter(r => !(vistaAcquisti.prodotti || {})[r.codice]).map(r => r.codice);
-  if (!confirm(`Bolla ${numero} del ${dataDoc} — ${fornitore}\n${righe.length} articoli, ${righe.reduce((s, r) => s + r.qta, 0)} pezzi in tutto` +
-    (ignoti.length ? `\nNon in anagrafica: ${ignoti.join(", ")}` : "") +
-    `\n\nRegistrare il carico nel magazzino ${mag ? mag[0].toUpperCase() + mag.slice(1) : "Principale"}?\nIl magazziniere NON deve fare anche il carico dal telefono.`)) return;
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`DDT ${numero} del ${dataDoc}`, fornitore], [], ["Codice", "Descrizione", "Quantità"], ...righe.map(r => [r.codice, r.descrizione, r.qta])]), "bolla");
-  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ token: store.get("token"), tipo: "bolla", mag, nome: `DDT ${fornitore} ${numero}.xlsx`, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }), reparto: `DDT ${numero} del ${dataDoc} ${fornitore}`,
-      data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), operatore: "Ufficio acquisti",
-      righe: righe.map(r => ({ ...r, attesa: r.qta })) }) }).then(r => r.json()).catch(() => null);
-  if (!j || j.error) return alert("Errore: " + (j?.error || "server non raggiungibile") + ". Riprova");
-  alert(j.duplicato ? `La bolla ${numero} di ${fornitore} era già stata caricata: non è stata registrata di nuovo` : `Bolla ${numero} registrata: ${righe.length} articoli caricati`);
+  const files = [...input.files]; input.value = ""; if (!files.length) return;
+  const t = x => String(x ?? "").trim(), bolle = [], scarti = [], anag = vistaAcquisti.prodotti || {};
+  for (const file of files) {
+    let rows;
+    try { const wb = XLSX.read(await file.arrayBuffer()); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }); }
+    catch { scarti.push(`${file.name}: file non leggibile`); continue; }
+    const riga = testo => rows.findIndex(r => t(r[0]) === testo), iDoc = riga("TIPO DOCUMENTO"), iArt = riga("CODICE ARTICOLO");
+    if (iDoc < 0 || iArt < 0) { scarti.push(`${file.name}: non è una bolla di Giove`); continue; }
+    // la quantità sta sotto "QUANTITA'" o nella colonna prima (dipende dalle celle unite); righe senza quantità = intestazioni ripetute
+    const righe = rows.slice(iArt + 1).map(r => ({ codice: t(r[0]), descrizione: t(r[3]), qta: Number(t(r[10] || r[11]).replace(",", ".")) }))
+      .filter(r => r.codice && r.qta > 0);
+    if (!righe.length) { scarti.push(`${file.name}: nessun articolo con quantità`); continue; }
+    bolle.push({ fornitore: t(rows[1]?.[0]), numero: t(rows[iDoc + 2]?.[3]), dataDoc: t(rows[iDoc + 2]?.[4]), righe });
+  }
+  const mag = vistaAcquisti.mag || "", ignoti = [...new Set(bolle.flatMap(b => b.righe.filter(r => !anag[r.codice]).map(r => r.codice)))];
+  if (!bolle.length) return alert("Nessuna bolla da caricare:\n" + scarti.join("\n"));
+  if (!confirm(bolle.map(b => `Bolla ${b.numero} del ${b.dataDoc} — ${b.fornitore}: ${b.righe.length} articoli`).join("\n") +
+    (scarti.length ? `\n\nScartati:\n${scarti.join("\n")}` : "") + (ignoti.length ? `\n\nNon in anagrafica: ${ignoti.join(", ")}` : "") +
+    `\n\nMandare ${bolle.length === 1 ? "la bolla" : `le ${bolle.length} bolle`} al magazzino ${mag ? mag[0].toUpperCase() + mag.slice(1) : "Principale"} per il controllo?\nLe troverà nel Carico, con "Richiama bolla o richiesta d'acquisto".`)) return;
+  const esiti = [];
+  for (const b of bolle) { // una alla volta: il server le scrive comunque in fila
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`DDT ${b.numero} del ${b.dataDoc}`, b.fornitore], [], ["Codice", "Descrizione", "Quantità"], ...b.righe.map(r => [r.codice, r.descrizione, r.qta])]), "bolla");
+    const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ token: store.get("token"), tipo: "bolla", mag, nome: `DDT ${b.fornitore} ${b.numero}.xlsx`, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }), reparto: `DDT ${b.numero} del ${b.dataDoc} ${b.fornitore}`,
+        data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), operatore: "Ufficio acquisti",
+        righe: b.righe.map(r => ({ ...r, attesa: r.qta })) }) }).then(r => r.json()).catch(() => null);
+    esiti.push(`Bolla ${b.numero} ${b.fornitore}: ` + (!j || j.error ? "ERRORE " + (j?.error || "server non raggiungibile") + ", riprova" : j.duplicato ? "già caricata, saltata" : "mandata al magazzino"));
+  }
+  alert(esiti.join("\n"));
   vistaAcquisti();
 }
 
@@ -314,7 +320,7 @@ async function vistaAcquisti(mag) {
   if (!permesse.includes("giacenze") || vistaAcquisti.mag !== m) return; // nel frattempo è uscito o ha cambiato magazzino
   if (!j || j.error) return $("#main").innerHTML = `<div class="tab"><p>Dati non disponibili: ${esc(j?.error || "server non raggiungibile")}</p></div>
     <button class="link" onclick="vistaAcquisti()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
-  const g = j.giacenze || {}, sc = j.scorte || {}, p = vistaAcquisti.prodotti = j.prodotti || {}, aperti = j.aperti || [], num = v => v === "" || v == null ? "" : esc(v);
+  const g = j.giacenze || {}, sc = j.scorte || {}, p = vistaAcquisti.prodotti = j.prodotti || {}, aperti = (j.aperti || []).filter(o => o.tipo !== "bolla"), bolle = (j.aperti || []).filter(o => o.tipo === "bolla"), num = v => v === "" || v == null ? "" : esc(v);
   const richiesto = {}; // codice → data della prima richiesta d'acquisto aperta che lo contiene
   aperti.forEach(o => o.righe.forEach(r => richiesto[r.codice] = richiesto[r.codice] || o.data));
   const sotto = c => sc[c] && sc[c][0] !== "" && g[c] < sc[c][0];
@@ -323,7 +329,7 @@ async function vistaAcquisti(mag) {
   const nome = x => x ? x[0].toUpperCase() + x.slice(1) : "Principale";
   $("#main").innerHTML = `
     <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select>
-      ${permesse.includes("bolla") ? `<label class="btn gray" style="display:inline-flex;width:auto;margin-left:12px">Carica bolla da Giove<input type="file" accept=".xls,.xlsx" hidden onchange="caricaBolla(this)"></label>` : ""}</h2>
+      ${permesse.includes("bolla") ? `<label class="btn gray" style="display:inline-flex;width:auto;margin-left:12px">Carica bolle da Giove<input type="file" accept=".xls,.xlsx" multiple hidden onchange="caricaBolla(this)"></label>` : ""}</h2>
     <div class="kpi"><div><b>${codici.length ? sottoscorta.length : "—"}</b>Articoli sottoscorta<small>${codici.length ? `${sottoscorta.filter(c => richiesto[c]).length} già richiesti` : "giacenze ignote fino al primo inventario"}</small></div>
       <div><b>${aperti.length}</b>Richieste d'acquisto aperte</div>
       <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
@@ -332,6 +338,9 @@ async function vistaAcquisti(mag) {
         codici.length ? "Nessun articolo sotto la scorta minima fra quelli con giacenza nota" : "Giacenze non ancora note: il sottoscorta si vedrà dopo il primo inventario fatto dall'app")}</section>
     <section><h2>Richieste d'acquisto aperte</h2>
       ${tab("tAcq", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], aperti.map(o => capo(o, 5) + o.righe.map(r => riga(r.codice)).join("")).join(""), "Nessuna richiesta aperta")}</section></div>
+    <h2>Bolle da controllare in magazzino</h2>
+    ${tab("tBol", ["Codice", "Descrizione", "#Quantità in bolla"], bolle.map(o => capo(o, 3) + o.righe.map(r => `<tr><td>${esc(r.codice)}</td><td>${esc(r.descrizione)}</td><td class="n">${num(r.qta)}</td></tr>`).join("")).join(""),
+      "Nessuna bolla in attesa: quelle controllate sono nella cartella carico/, pronte per Giove")}
     <h2>Giacenze <input type="search" placeholder="Cerca codice o descrizione" oninput="cerca(this, 'tGia')"></h2>
     ${tab("tGia", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], codici.map(c => riga(c)).join(""),
       "Nessuna giacenza nota: un codice compare qui dopo il primo inventario fatto dall'app")}
@@ -466,7 +475,9 @@ function evadi(i) {
   if (bozza.righe.length && !confirm("Sostituire gli articoli già scansionati con la " + DA[tipo].nome + "?")) return;
   const o = ordini[i];
   bozza = { riferimento: o.reparto, ordine: o.id, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti"),
-            righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, qta: 0, dichiarata: "" })) };
+            // bolla: quantità del DDT già scritte come "in bolla" e come arrivate; il magazziniere corregge solo quelle che non tornano
+            righe: o.righe.map(r => o.tipo === "bolla" ? { codice: r.codice, descrizione: r.descrizione, qta: r.qta, dichiarata: r.qta }
+              : { codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, qta: 0, dichiarata: "" }) };
   salva(); apri(tipo);
 }
 function sganciaOrdine() {
