@@ -419,7 +419,7 @@ function apri(t) {
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
     ${!DA[t] || !permesse.includes("elenco") ? "" : bozza.ordine
-      ? `<div class="banner"><i style="background:${APPS[DA[t].aperti].colore}">${ico(DA[t].icona)}</i>
+      ? `<div class="banner"><i style="background:${APPS[DA[t].icona].colore}">${ico(DA[t].icona)}</i>
          <div><b>${esc(bozza.nomeOrdine || bozza.riferimento)}</b><div class="meta" style="margin:0">${esc(bozza.dataOrdine)}</div></div>
          <button class="icon" aria-label="Sgancia" onclick="sganciaOrdine()">${ico("chiudi")}</button></div>`
       : `<button class="btn gray" style="margin-bottom:20px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>`}
