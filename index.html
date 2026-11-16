@@ -247,6 +247,7 @@ async function fermaScanner() {
 async function home() {
   await fermaScanner(); tipo = null;
   if (permesse.includes("admin")) return admin();
+  if (permesse.includes("giacenze")) return vistaAcquisti();
   testata("Magazzino", false);
   // il server rifiuta comunque le funzioni non consentite: qui si nascondono solo i riquadri
   $("#main").innerHTML = `<div class="grid">${Object.entries(APPS).filter(([k]) => permesse.includes(k)).map(([k, a]) =>
@@ -267,6 +268,44 @@ async function admin() {
     <button class="link" onclick="admin()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
   disegnaAdmin(j && !j.error ? "" : "Aggiornamento non riuscito: " + (j?.error || "server non raggiungibile"));
 }
+// tabelle della dashboard e della vista acquisti: "#" davanti al titolo = colonna numerica; capo = riga d'intestazione di un ordine/richiesta
+const capo = (o, col) => `<tr class="capo"><td colspan="${col}">${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}
+  · ${esc(o.data)} · ${esc(o.operatore)}${o.urgente && o.motivo ? " · " + esc(o.motivo) : ""}</td></tr>`;
+const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><thead><tr>${testa.map(t => `<th${t[0] === "#" ? ' class="n"' : ""}>${t.replace("#", "")}</th>`).join("")}</tr></thead>
+  <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
+
+// ufficio acquisti (permesso "giacenze"): sola lettura da computer, un magazzino alla volta scelto dal menu
+async function vistaAcquisti(mag) {
+  const m = vistaAcquisti.mag = mag ?? vistaAcquisti.mag ?? "";
+  testata("Acquisti", false); $("#main").className = "admin";
+  $("#main").innerHTML = `<div class="tab"><p>Caricamento…</p></div>`;
+  const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(store.get("token")) + "&mag=" + encodeURIComponent(m)).then(r => r.json()).catch(() => null);
+  if (!permesse.includes("giacenze") || vistaAcquisti.mag !== m) return; // nel frattempo è uscito o ha cambiato magazzino
+  if (!j || j.error) return $("#main").innerHTML = `<div class="tab"><p>Dati non disponibili: ${esc(j?.error || "server non raggiungibile")}</p></div>
+    <button class="link" onclick="vistaAcquisti()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
+  const g = j.giacenze || {}, sc = j.scorte || {}, p = j.prodotti || {}, aperti = j.aperti || [], num = v => v === "" || v == null ? "" : esc(v);
+  const richiesto = {}; // codice → data della prima richiesta d'acquisto aperta che lo contiene
+  aperti.forEach(o => o.righe.forEach(r => richiesto[r.codice] = richiesto[r.codice] || o.data));
+  const sotto = c => sc[c] && sc[c][0] !== "" && g[c] < sc[c][0];
+  const codici = Object.keys(g).sort((a, b) => !!sotto(b) - !!sotto(a) || a.localeCompare(b)), sottoscorta = codici.filter(sotto);
+  const riga = (c, extra = "") => `<tr class="${sotto(c) ? "sotto" : ""}"><td>${esc(c)}</td><td>${esc(p[c])}</td><td class="n">${num(g[c])}</td><td class="n">${num(sc[c]?.[0])}</td><td class="n">${num(sc[c]?.[1])}</td>${extra}</tr>`;
+  const nome = x => x ? x[0].toUpperCase() + x.slice(1) : "Principale";
+  $("#main").innerHTML = `
+    <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select></h2>
+    <div class="kpi"><div><b>${codici.length ? sottoscorta.length : "—"}</b>Articoli sottoscorta<small>${codici.length ? `${sottoscorta.filter(c => richiesto[c]).length} già richiesti` : "giacenze ignote fino al primo inventario"}</small></div>
+      <div><b>${aperti.length}</b>Richieste d'acquisto aperte</div>
+      <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
+    <div class="due"><section><h2>Sottoscorta</h2>
+      ${tab("tSot", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max", "Richiesto"], sottoscorta.map(c => riga(c, `<td>${richiesto[c] ? "il " + esc(richiesto[c]) : ""}</td>`)).join(""),
+        codici.length ? "Nessun articolo sotto la scorta minima fra quelli con giacenza nota" : "Giacenze non ancora note: il sottoscorta si vedrà dopo il primo inventario fatto dall'app")}</section>
+    <section><h2>Richieste d'acquisto aperte</h2>
+      ${tab("tAcq", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], aperti.map(o => capo(o, 5) + o.righe.map(r => riga(r.codice)).join("")).join(""), "Nessuna richiesta aperta")}</section></div>
+    <h2>Giacenze <input type="search" placeholder="Cerca codice o descrizione" oninput="cerca(this, 'tGia')"></h2>
+    ${tab("tGia", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], codici.map(c => riga(c)).join(""),
+      "Nessuna giacenza nota: un codice compare qui dopo il primo inventario fatto dall'app")}
+    <button class="link" onclick="vistaAcquisti()">Aggiorna</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
+}
+
 function disegnaAdmin(errore) {
   const oggi = new Date().toLocaleDateString("it-IT", { dateStyle: "short" }), num = v => v === "" || v == null ? "" : esc(v);
   const ord = dati.aperti.filter(o => o.tipo === "ordini").sort((a, b) => !!b.urgente - !!a.urgente), acq = dati.aperti.filter(o => o.tipo === "acquisti");
@@ -275,10 +314,6 @@ function disegnaAdmin(errore) {
   const k = kpi(dati.movimenti, dati.aperti, giacenze, scorte, Object.keys(prodotti).length, new Date(), admin.giorni), perc = v => v == null ? "—" : v + "%";
   const mov = dati.movimenti.filter(m => m[0]).reverse(), // senza le righe vuote rimaste nel foglio
         docOggi = new Set(mov.filter(m => m[1].split(",")[0] === oggi).map(m => m[0])).size;
-  const capo = (o, col) => `<tr class="capo"><td colspan="${col}">${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}
-    · ${esc(o.data)} · ${esc(o.operatore)}${o.urgente && o.motivo ? " · " + esc(o.motivo) : ""}</td></tr>`;
-  const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><thead><tr>${testa.map(t => `<th${t[0] === "#" ? ' class="n"' : ""}>${t.replace("#", "")}</th>`).join("")}</tr></thead>
-    <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
   $("#main").innerHTML = `
     <h2>Indicatori <select onchange="admin.giorni = +this.value; admin()">${[7, 30, 90, 365].map(g => `<option value="${g}" ${g === admin.giorni ? "selected" : ""}>Ultimi ${g} giorni</option>`).join("")}</select></h2>
     <div class="kpi"><div><b>${ord.length}</b>Ordini reparto aperti<small>${ord.filter(o => o.urgente).length} urgenti</small></div>
