@@ -354,9 +354,9 @@ function apri(t) {
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
         <label class="cell" id="motivoCell" ${bozza.urgente && t === "ordini" ? "" : "hidden"}><span>Motivo</span>
           <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
-      ${t !== "scarico" ? "" : `<label class="cell"><span>Motivo</span><select id="causale"><option value="">Scegli…</option>${
+      ${t !== "scarico" || store.get("magazzino") ? "" : `<label class="cell"><span>Motivo</span><select id="causale"><option value="">Scegli…</option>${
         CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
-      ${t === "scarico" && bozza.ordine ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
+      ${t === "scarico" && bozza.ordine && permesse.includes("elenco") ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
     <div class="scan">
       <div id="reader"></div>
@@ -519,7 +519,7 @@ function rimuovi(i) { bozza.righe.splice(i, 1); salva(); disegna(); }
 async function invia() {
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
-  if (tipo === "scarico" && !CAUSALI.includes(bozza.causale)) return avviso("Scegli il motivo dello scarico");
+  if (tipo === "scarico" && !store.get("magazzino") && !CAUSALI.includes(bozza.causale)) // il motivo serve solo al magazzino principale return avviso("Scegli il motivo dello scarico");
   if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
@@ -528,7 +528,7 @@ async function invia() {
   // nome e data fissati al primo tentativo: se la risposta si perde, il reinvio porta lo stesso documento e il server non lo registra due volte
   if (!bozza.invio) {
     const d = new Date();
-    bozza.invio = { nome: nomeFile(tipo, d, (tipo === "acquisti" && bozza.urgente ? "URGENTE " : tipo === "scarico" ? bozza.causale + " " : "") + rif).replace(".xlsx", "_" + Math.random().toString(36).slice(2, 6) + ".xlsx"),
+    bozza.invio = { nome: nomeFile(tipo, d, (tipo === "acquisti" && bozza.urgente ? "URGENTE " : tipo === "scarico" && bozza.causale ? bozza.causale + " " : "") + rif).replace(".xlsx", "_" + Math.random().toString(36).slice(2, 6) + ".xlsx"),
                     data: d.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), righe: righeOra };
     salva();
   }
