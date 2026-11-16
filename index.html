@@ -204,6 +204,7 @@ async function caricaProdotti(token) {
   if (j.error) return avviso(j.error, 3000), false;
   prodotti = j.prodotti; store.set("prodotti", prodotti);
   permesse = j.app || []; store.set("app", permesse);
+  store.set("magazzino", j.magazzino || ""); // "" = principale, altrimenti le bozze restano separate per magazzino
   ubicazioni = j.ubicazioni || {}; store.set("ubicazioni", ubicazioni);
   giacenze = j.giacenze || {}; store.set("giacenze", giacenze);
   scorte = j.scorte || {}; store.set("scorte", scorte);
@@ -233,7 +234,8 @@ function accesso() {
   $("#tok").onkeydown = e => { if (e.key === "Enter") entra(); };
 }
 
-const salva = () => store.set("bozza_" + tipo, bozza);
+const chiaveBozza = t => "bozza_" + (store.get("magazzino") ? store.get("magazzino") + "_" : "") + t;
+const salva = () => store.set(chiaveBozza(tipo), bozza);
 function avviso(t, ms = 2000) {
   const m = $("#msg"); m.textContent = t; m.style.display = "block";
   clearTimeout(m._t); m._t = setTimeout(() => m.style.display = "none", ms);
@@ -335,11 +337,11 @@ function esci() {
 
 function apri(t) {
   fermaScanner(); tipo = t; const a = APPS[t];
-  bozza = store.get("bozza_" + t) || { riferimento: "", righe: [] };
+  bozza = store.get(chiaveBozza(t)) || { riferimento: "", righe: [] };
   testata(a.nome, true);
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
-    ${!DA[t] ? "" : bozza.ordine
+    ${!DA[t] || !permesse.includes("elenco") ? "" : bozza.ordine
       ? `<div class="banner"><i style="background:${APPS[DA[t].aperti].colore}">${ico(DA[t].icona)}</i>
          <div><b>${esc(bozza.nomeOrdine || bozza.riferimento)}</b><div class="meta" style="margin:0">${esc(bozza.dataOrdine)}</div></div>
          <button class="icon" aria-label="Sgancia" onclick="sganciaOrdine()">${ico("chiudi")}</button></div>`
