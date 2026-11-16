@@ -374,6 +374,7 @@ function esci() {
 function apri(t) {
   fermaScanner(); tipo = t; collega = null; const a = APPS[t];
   bozza = store.get(chiaveBozza(t)) || { riferimento: "", righe: [] };
+  if (t === "inventario" && store.get("magazzino") === "resine" && !bozza.riferimento) bozza.riferimento = "Magazzino resine";
   testata(a.nome, true);
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
