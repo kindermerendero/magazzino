@@ -555,7 +555,8 @@ function rimuovi(i) { bozza.righe.splice(i, 1); salva(); disegna(); }
 async function invia() {
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
-  if (tipo === "scarico" && !store.get("magazzino") && !CAUSALI.includes(bozza.causale)) // il motivo serve solo al magazzino principale return avviso("Scegli il motivo dello scarico");
+  // il motivo serve solo al magazzino principale
+  if (tipo === "scarico" && !store.get("magazzino") && !CAUSALI.includes(bozza.causale)) return avviso("Scegli il motivo dello scarico");
   if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
