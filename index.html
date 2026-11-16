@@ -501,7 +501,8 @@ function disegna() {
       ${r.richiesta !== undefined ? `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>` : ""}
       ${tipo === "acquisti" && richiesti[r.codice] ? `<div class="meta"><span class="badge">GIÀ RICHIESTO</span> il ${esc(richiesti[r.codice])}</div>` : ""}
       ${(tipo === "acquisti" || tipo === "scarico") && scorte[r.codice] ? `<div class="meta">Scorta min: <strong>${esc(scorte[r.codice][0]) || "–"}</strong> · max: <strong>${esc(scorte[r.codice][1]) || "–"}</strong></div>` : ""}
-      ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>` : ""}
+      ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>
+        <label class="field">Contata ora<span><input type="checkbox" class="switch" ${r.contata ? "checked" : ""} onchange="campo(${i},'contata',this.checked)"></span></label>` : ""}
       ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
       ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità"}
         <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
@@ -575,7 +576,7 @@ async function invia() {
     method: "POST", headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({ token: store.get("token"), tipo, nome, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }),
       ordine: bozza.ordine, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : tipo === "scarico" ? bozza.causale : "",
-      righe: bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: tipo === "acquisti" ? "" : r.qta,
+      righe: bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: tipo === "acquisti" ? "" : r.qta, contata: tipo === "acquisti" && r.contata ? Number(r.giacenza) : undefined, // "Contata ora": vale come inventario
         attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : "" })) }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = APPS[tipo].invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
