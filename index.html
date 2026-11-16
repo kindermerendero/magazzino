@@ -276,6 +276,34 @@ const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><th
   <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
 
 // ufficio acquisti (permesso "giacenze"): sola lettura da computer, un magazzino alla volta scelto dal menu
+// DDT esportato da Giove ("D.d.T. Ricevuto a Magazzino", .XLS): diventa un carico senza che il magazziniere scansioni.
+// Su Giove è già registrato, quindi niente Excel; il nome del documento (fornitore + numero) blocca il doppio caricamento
+async function caricaBolla(input) {
+  const file = input.files[0]; input.value = ""; if (!file) return;
+  let rows;
+  try { const wb = XLSX.read(await file.arrayBuffer()); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }); }
+  catch { return alert("File non leggibile: serve l'export .XLS della bolla da Giove"); }
+  const t = x => String(x ?? "").trim(), riga = testo => rows.findIndex(r => t(r[0]) === testo);
+  const iDoc = riga("TIPO DOCUMENTO"), iArt = riga("CODICE ARTICOLO");
+  if (iDoc < 0 || iArt < 0) return alert("Non sembra una bolla di Giove: mancano TIPO DOCUMENTO o CODICE ARTICOLO");
+  const fornitore = t(rows[1]?.[0]), numero = t(rows[iDoc + 2]?.[3]), dataDoc = t(rows[iDoc + 2]?.[4]);
+  // la quantità sta sotto "QUANTITA'" o nella colonna prima (dipende dalle celle unite); righe senza quantità = intestazioni ripetute
+  const righe = rows.slice(iArt + 1).map(r => ({ codice: t(r[0]), descrizione: t(r[3]), qta: Number(t(r[10] || r[11]).replace(",", ".")) }))
+    .filter(r => r.codice && r.qta > 0);
+  if (!righe.length) return alert("Nessun articolo con quantità nella bolla");
+  const mag = vistaAcquisti.mag || "", ignoti = righe.filter(r => !(vistaAcquisti.prodotti || {})[r.codice]).map(r => r.codice);
+  if (!confirm(`Bolla ${numero} del ${dataDoc} — ${fornitore}\n${righe.length} articoli, ${righe.reduce((s, r) => s + r.qta, 0)} pezzi in tutto` +
+    (ignoti.length ? `\nNon in anagrafica: ${ignoti.join(", ")}` : "") +
+    `\n\nRegistrare il carico nel magazzino ${mag ? mag[0].toUpperCase() + mag.slice(1) : "Principale"}?\nIl magazziniere NON deve fare anche il carico dal telefono.`)) return;
+  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ token: store.get("token"), tipo: "bolla", mag, nome: `DDT ${fornitore} ${numero}`, reparto: `DDT ${numero} del ${dataDoc} ${fornitore}`,
+      data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), operatore: "Ufficio acquisti",
+      righe: righe.map(r => ({ ...r, attesa: r.qta })) }) }).then(r => r.json()).catch(() => null);
+  if (!j || j.error) return alert("Errore: " + (j?.error || "server non raggiungibile") + ". Riprova");
+  alert(j.duplicato ? `La bolla ${numero} di ${fornitore} era già stata caricata: non è stata registrata di nuovo` : `Bolla ${numero} registrata: ${righe.length} articoli caricati`);
+  vistaAcquisti();
+}
+
 async function vistaAcquisti(mag) {
   const m = vistaAcquisti.mag = mag ?? vistaAcquisti.mag ?? "";
   testata("Acquisti", false); $("#main").className = "admin";
@@ -284,7 +312,7 @@ async function vistaAcquisti(mag) {
   if (!permesse.includes("giacenze") || vistaAcquisti.mag !== m) return; // nel frattempo è uscito o ha cambiato magazzino
   if (!j || j.error) return $("#main").innerHTML = `<div class="tab"><p>Dati non disponibili: ${esc(j?.error || "server non raggiungibile")}</p></div>
     <button class="link" onclick="vistaAcquisti()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
-  const g = j.giacenze || {}, sc = j.scorte || {}, p = j.prodotti || {}, aperti = j.aperti || [], num = v => v === "" || v == null ? "" : esc(v);
+  const g = j.giacenze || {}, sc = j.scorte || {}, p = vistaAcquisti.prodotti = j.prodotti || {}, aperti = j.aperti || [], num = v => v === "" || v == null ? "" : esc(v);
   const richiesto = {}; // codice → data della prima richiesta d'acquisto aperta che lo contiene
   aperti.forEach(o => o.righe.forEach(r => richiesto[r.codice] = richiesto[r.codice] || o.data));
   const sotto = c => sc[c] && sc[c][0] !== "" && g[c] < sc[c][0];
@@ -292,7 +320,8 @@ async function vistaAcquisti(mag) {
   const riga = (c, extra = "") => `<tr class="${sotto(c) ? "sotto" : ""}"><td>${esc(c)}</td><td>${esc(p[c])}</td><td class="n">${num(g[c])}</td><td class="n">${num(sc[c]?.[0])}</td><td class="n">${num(sc[c]?.[1])}</td>${extra}</tr>`;
   const nome = x => x ? x[0].toUpperCase() + x.slice(1) : "Principale";
   $("#main").innerHTML = `
-    <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select></h2>
+    <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select>
+      ${permesse.includes("bolla") ? `<label class="btn gray" style="display:inline-flex;width:auto;margin-left:12px">Carica bolla da Giove<input type="file" accept=".xls,.xlsx" hidden onchange="caricaBolla(this)"></label>` : ""}</h2>
     <div class="kpi"><div><b>${codici.length ? sottoscorta.length : "—"}</b>Articoli sottoscorta<small>${codici.length ? `${sottoscorta.filter(c => richiesto[c]).length} già richiesti` : "giacenze ignote fino al primo inventario"}</small></div>
       <div><b>${aperti.length}</b>Richieste d'acquisto aperte</div>
       <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
