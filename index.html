@@ -196,13 +196,14 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
   if (!j) return avviso("Anagrafica non aggiornata: server non raggiungibile", 3000), true;
   if (j.error) return avviso(j.error, 3000), false;
   prodotti = j.prodotti; store.set("prodotti", prodotti);
+  barcode = j.barcode || {}; store.set("barcode", barcode); // barcode del fornitore → [codice interno, pezzi per lettura]
   permesse = j.app || []; store.set("app", permesse);
   store.set("magazzino", j.magazzino || ""); // "" = principale, altrimenti le bozze restano separate per magazzino
   ubicazioni = j.ubicazioni || {}; store.set("ubicazioni", ubicazioni);
@@ -371,7 +372,7 @@ function esci() {
 }
 
 function apri(t) {
-  fermaScanner(); tipo = t; const a = APPS[t];
+  fermaScanner(); tipo = t; collega = null; const a = APPS[t];
   bozza = store.get(chiaveBozza(t)) || { riferimento: "", righe: [] };
   testata(a.nome, true);
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
@@ -444,12 +445,32 @@ function sganciaOrdine() {
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
 function aggiungi(codice) {
   codice = codice.trim(); if (!codice) return;
+  if (!prodotti[codice] && prodotti[codice.toUpperCase()]) codice = codice.toUpperCase(); // scritto a mano in minuscolo
+  const bc = barcode[codice], pezzi = bc ? bc[1] : 1;
+  if (bc) codice = bc[0]; // barcode del fornitore → codice interno
+  else if (!prodotti[codice] && permesse.includes("barcode")) {
+    // barcode sconosciuto: si collega al prossimo codice interno letto o scritto, che poi viene aggiunto
+    if (collega) return avviso(`${codice} non è in anagrafica: scansiona il QR dell'articolo o scrivi il suo codice`, 4000);
+    if (confirm(`${codice} non è in anagrafica.\nÈ il barcode del fornitore? OK = collegalo a un articolo (poi scansiona il QR o scrivi il codice).`))
+      return collega = codice, avviso("Ora scansiona il QR dell'articolo o scrivi il suo codice", 5000);
+  }
+  if (collega && prodotti[codice]) return salvaBarcode(collega, codice);
   let r = bozza.righe.find(x => x.codice === codice);
-  if (r) r.qta++;
-  else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: 1, dichiarata: "", giacenza: giacenze[codice] ?? "" });
+  if (r) r.qta += pezzi;
+  else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: pezzi, dichiarata: "", giacenza: giacenze[codice] ?? "" });
   navigator.vibrate?.(80);
   avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${r.qta})` : `${codice} non è in anagrafica`);
   salva(); disegna();
+}
+async function salvaBarcode(b, codice) {
+  collega = null;
+  const j = await fetch(SCRIPT_URL, {
+    method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ token: store.get("token"), tipo: "barcode", barcode: b, codice }),
+  }).then(r => r.json()).catch(() => null);
+  if (!j || j.error) avviso("Barcode non collegato: " + (j?.error || "server non raggiungibile"), 4000);
+  else barcode[b] = [codice, 1], store.set("barcode", barcode), setTimeout(() => avviso(`${b} collegato a ${codice}`, 3000), 2100);
+  aggiungi(codice);
 }
 // codici già presenti in una richiesta d'acquisto ancora aperta → data della più recente: si ripropongono comunque, ma con l'etichetta
 async function caricaRichiesti() {
