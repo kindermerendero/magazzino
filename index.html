@@ -277,7 +277,7 @@ const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><th
 
 // ufficio acquisti (permesso "giacenze"): sola lettura da computer, un magazzino alla volta scelto dal menu
 // DDT esportato da Giove ("D.d.T. Ricevuto a Magazzino", .XLS): diventa un carico senza che il magazziniere scansioni.
-// Su Giove è già registrato, quindi niente Excel; il nome del documento (fornitore + numero) blocca il doppio caricamento
+// Su Giove è già registrato: l'Excel va solo in bolle/ come archivio; il nome del documento (fornitore + numero) blocca il doppio caricamento
 async function caricaBolla(input) {
   const file = input.files[0]; input.value = ""; if (!file) return;
   let rows;
@@ -295,8 +295,10 @@ async function caricaBolla(input) {
   if (!confirm(`Bolla ${numero} del ${dataDoc} — ${fornitore}\n${righe.length} articoli, ${righe.reduce((s, r) => s + r.qta, 0)} pezzi in tutto` +
     (ignoti.length ? `\nNon in anagrafica: ${ignoti.join(", ")}` : "") +
     `\n\nRegistrare il carico nel magazzino ${mag ? mag[0].toUpperCase() + mag.slice(1) : "Principale"}?\nIl magazziniere NON deve fare anche il carico dal telefono.`)) return;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`DDT ${numero} del ${dataDoc}`, fornitore], [], ["Codice", "Descrizione", "Quantità"], ...righe.map(r => [r.codice, r.descrizione, r.qta])]), "bolla");
   const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ token: store.get("token"), tipo: "bolla", mag, nome: `DDT ${fornitore} ${numero}`, reparto: `DDT ${numero} del ${dataDoc} ${fornitore}`,
+    body: JSON.stringify({ token: store.get("token"), tipo: "bolla", mag, nome: `DDT ${fornitore} ${numero}.xlsx`, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }), reparto: `DDT ${numero} del ${dataDoc} ${fornitore}`,
       data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), operatore: "Ufficio acquisti",
       righe: righe.map(r => ({ ...r, attesa: r.qta })) }) }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return alert("Errore: " + (j?.error || "server non raggiungibile") + ". Riprova");
