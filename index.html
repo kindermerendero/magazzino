@@ -425,6 +425,9 @@ function apri(t) {
   if (t === "inventario" && store.get("magazzino") === "resine" && !bozza.riferimento) bozza.riferimento = "Magazzino resine";
   testata(a.nome, true);
   if (t === "catalogo") return vistaCatalogo();
+  // ordini: reparto dal menu con i nomi dei cataloghi (scheda "reparti"), ricordato sul telefono; un nome scritto a mano prima non vale più
+  const menuReparti = t === "ordini" && Object.keys(reparti).length ? Object.keys(reparti).sort() : null;
+  if (menuReparti && !menuReparti.includes(bozza.riferimento)) bozza.riferimento = menuReparti.includes(store.get("reparto")) ? store.get("reparto") : "";
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
     ${!DA[t] || !permesse.includes("elenco") ? "" : bozza.ordine
@@ -434,7 +437,9 @@ function apri(t) {
       : `<button class="btn gray" style="margin-bottom:20px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>`}
     ${t === "acquisti" ? `<button class="btn gray" style="margin-bottom:20px" onclick="sottoscorta()">${ico("elenco")}Aggiungi articoli sottoscorta</button>` : ""}
     <div class="group">
-      ${a.rif ? `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>` : ""}
+      ${menuReparti ? `<label class="cell"><span>${a.rif}</span><select id="rif"><option value="">Scegli…</option>${
+        menuReparti.map(r => `<option ${r === bozza.riferimento ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label>`
+      : a.rif ? `<label class="cell"><span>${a.rif}</span><input id="rif" placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>` : ""}
       <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
       ${t !== "ordini" && t !== "acquisti" ? "" : `
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
@@ -457,7 +462,7 @@ function apri(t) {
     <div id="lista"></div>
     <div class="bar"><button class="btn" id="invia" onclick="invia()">${a.invia}</button></div>`;
   camSpenta();
-  if (a.rif) $("#rif").oninput = e => { bozza.riferimento = e.target.value; salva(); };
+  if (a.rif) $("#rif").oninput = $("#rif").onchange = e => { bozza.riferimento = e.target.value; if (menuReparti) store.set("reparto", e.target.value); salva(); };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
   if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
