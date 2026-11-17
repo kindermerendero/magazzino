@@ -89,7 +89,7 @@ function kpi(mov, aperti, giacenze, scorte, nProdotti, ora, giorni) {
   mov.forEach(m => {
     const d = quando(m[1]); if (!d) return;
     if (m[2] === "ordini") nati[m[0]] = d; else if ((m[2] === "scarico" || m[2] === "chiusura") && m[9]) chiusi[m[9]] = d;
-    if (m[2] === "chiusura" && m[11] === "ANNULLATO") annullati.add(m[9]); // ordini sbagliati: non sono evasioni
+    if (m[2] === "chiusura" && m[11] === "ANNULLATO" && !m[5]) annullati.add(m[9]); // ordini sbagliati interi: non sono evasioni
   });
   const tempi = Object.keys(nati).filter(id => chiusi[id] && !idAperti.has(id) && !annullati.has(id)).map(id => (chiusi[id] - nati[id]) / 36e5);
   // consumo: le quantità si sommano solo per codice (unità di misura diverse), per reparto si contano prelievi e codici

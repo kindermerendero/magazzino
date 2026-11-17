@@ -489,16 +489,7 @@ async function annulla(i) {
     return confirm(`Annullare l'ordine di ${o.reparto} del ${o.data}?\n\n${o.righe.slice(0, 6).map(r => `• ${r.codice} ${r.descrizione || ""}: ${r.qta}`).join("\n")}${
       o.righe.length > 6 ? `\n… e altri ${o.righe.length - 6}` : ""}\n\nResta nello storico ma non sarà più da evadere.`);
   });
-  if (!scelti.length) return;
-  // tracciabilità: chi annulla resta scritto nella riga di chiusura
-  const op = (store.get("operatore") || prompt("Chi annulla l'ordine? (nome)") || "").trim();
-  if (!op) return avviso("Serve il nome di chi annulla", 3000);
-  store.set("operatore", op); if ($("#op")) $("#op").value = op;
-  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ token: store.get("token"), tipo: "annulla", ordini: scelti, operatore: op,
-      data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) }),
-  }).then(r => r.json()).catch(() => null);
-  if (!j || j.error) return avviso("Ordine non annullato: " + (j?.error || "server non raggiungibile"), 4000);
+  if (!scelti.length || !await annullaSulServer({ ordini: scelti })) return;
   avviso(scelti.length > 1 ? scelti.length + " ordini annullati" : "Ordine annullato", 3000); elencoOrdini();
 }
 function evadi(i) {
@@ -648,8 +639,30 @@ function scattaFoto(i, btn) {
   inp.click();
 }
 
+// annullo di ordini interi ({ ordini }) o di righe ({ righe: [{ ordine, codice }] }); tracciabilità: chi annulla resta scritto nella riga di chiusura
+async function annullaSulServer(cosa) {
+  const op = (store.get("operatore") || prompt("Chi annulla? (nome)") || "").trim();
+  if (!op) return avviso("Serve il nome di chi annulla", 3000), false;
+  store.set("operatore", op); if ($("#op")) $("#op").value = op;
+  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ token: store.get("token"), tipo: "annulla", operatore: op, ...cosa,
+      data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) }),
+  }).then(r => r.json()).catch(() => null);
+  if (!j || j.error) return avviso("Non annullato: " + (j?.error || "server non raggiungibile"), 4000), false;
+  return true;
+}
 function campo(i, k, v) { bozza.righe[i][k] = k === "qta" ? Math.max(0, Number(v) || 0) : v; salva(); disegna(); }
-function rimuovi(i) { bozza.righe.splice(i, 1); salva(); disegna(); }
+// riga di un ordine reparto nello scarico: il cestino la annulla anche nell'ordine (altrimenti resterebbe da prelevare)
+async function rimuovi(i) {
+  const r = bozza.righe[i];
+  if (tipo === "scarico" && r.richiesta !== undefined && bozza.ordine && permesse.includes("annulla")) {
+    if (!confirm(`Togliere ${r.codice} dall'ordine di ${bozza.riferimento}?\n\nLa riga viene annullata nell'ordine e non sarà più da prelevare. Resta nello storico.`)) return;
+    const ordini = r.parti ? r.parti.map(p => p.ordine) : [bozza.ordine];
+    if (!await annullaSulServer({ righe: ordini.map(o => ({ ordine: o, codice: r.codice, descrizione: r.descrizione })) })) return;
+    avviso(r.codice + " annullato nell'ordine");
+  }
+  bozza.righe.splice(i, 1); salva(); disegna();
+}
 
 async function invia() {
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
