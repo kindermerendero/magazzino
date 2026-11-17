@@ -28,7 +28,36 @@ function nomeFile(tipo, d, rif) {
   return `${tipo}_${ts}${s ? "_" + s : ""}.xlsx`;
 }
 
-if (typeof module !== "undefined") module.exports = { TRACCIATI, rigaExcel, nomeFile };
+// ordini aperti dello stesso reparto e dello stesso giorno (per le vasche anche dello stesso operatore) → uno solo: stesse righe sommate, ogni riga ricorda da quali ordini viene (parti)
+function unisci(ordini) {
+  const g = {};
+  ordini.forEach(o => {
+    // vasche: più operatori sullo stesso reparto, ognuno col suo prelievo → si uniscono solo gli ordini dello stesso operatore
+    const rep = String(o.reparto || "").trim().toUpperCase(), op = /VASC?HE/.test(rep) ? "|" + String(o.operatore || "").trim().toUpperCase() : "";
+    const k = rep + "|" + String(o.data).split(",")[0] + op;
+    const u = g[k] = g[k] || { ...o, ids: [], urgente: false, motivi: [], righe: [] };
+    u.ids.push(o.id); u.urgente = u.urgente || !!o.urgente;
+    if (o.urgente && o.motivo && !u.motivi.includes(o.motivo)) u.motivi.push(o.motivo);
+    o.righe.forEach(r => {
+      let x = u.righe.find(x => x.codice === r.codice);
+      if (x) x.qta += r.qta; else u.righe.push(x = { codice: r.codice, descrizione: r.descrizione, qta: r.qta, parti: [] });
+      x.parti.push({ ordine: o.id, qta: r.qta });
+    });
+  });
+  return Object.values(g);
+}
+
+// il prelevato di una riga unita torna sugli ordini di partenza, dal più vecchio; quello in più va sull'ultimo
+function ripartisci(qta, parti) {
+  let resto = Number(qta) || 0;
+  return parti.map((p, i) => {
+    const q = i === parti.length - 1 ? resto : Math.min(resto, p.qta);
+    resto = Math.round((resto - q) * 1000) / 1000;
+    return { ordine: p.ordine, qta: q, attesa: p.qta };
+  });
+}
+
+if (typeof module !== "undefined") module.exports = { TRACCIATI, rigaExcel, nomeFile, unisci, ripartisci };
 
 // "12/11/26, 14:30" (data dei movimenti, scritta dal telefono) → Date; null se non si legge
 function quando(t) {
