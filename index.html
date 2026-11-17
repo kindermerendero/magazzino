@@ -61,6 +61,8 @@
   .cell select { flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--label); padding: 10px 0; outline: none; }
   .cell input::placeholder { color: var(--sec); }
   .cell .icon { color: var(--tint); }
+  button.cell { width: 100%; border: 0; background: none; font: inherit; color: var(--label); text-align: left; }
+  button.cell small { color: var(--sec); margin-left: auto; }
   .note { font-size: 13px; color: var(--sec); margin: -14px 16px 20px; }
   h2 { font-size: 13px; font-weight: 400; text-transform: uppercase; color: var(--sec); margin: 24px 16px 8px; }
 
@@ -458,6 +460,8 @@ function apri(t) {
       <input id="cod" placeholder="Codice a mano o lettore barcode" enterkeyhint="done" autocapitalize="characters" autocorrect="off">
       <button class="icon" aria-label="Aggiungi" onclick="manuale()" style="color:var(--tint);font-size:28px;line-height:1">+</button>
     </div></div>
+    ${store.get("magazzino") === "resine" ? `<h2>Tocca la resina</h2><div class="group">${ // catalogo digitale: poche voci, al posto dei QR stampati
+      Object.entries(prodotti).sort((x, y) => x[1].localeCompare(y[1])).map(([c, d]) => `<button class="cell" data-c="${esc(c)}" onclick="aggiungi(this.dataset.c)">${esc(d || c)}<small>${esc(c)}</small></button>`).join("")}</div>` : ""}
     <h2 id="conta"></h2>
     <div id="lista"></div>
     <div class="bar"><button class="btn" id="invia" onclick="invia()">${a.invia}</button></div>`;
