@@ -519,7 +519,8 @@ function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;"
 function aggiungi(codice) {
   codice = codice.trim(); if (!codice) return;
   if (!prodotti[codice] && prodotti[codice.toUpperCase()]) codice = codice.toUpperCase(); // scritto a mano in minuscolo
-  const bc = barcode[codice], pezzi = bc ? bc[1] : 1;
+  const kg = store.get("magazzino") === "resine"; // resine: si registrano i kg = confezioni × kg a confezione (formato ricordato sul telefono)
+  const bc = barcode[codice], pezzi = kg ? 0 : bc ? bc[1] : 1;
   if (bc) codice = bc[0]; // barcode del fornitore → codice interno
   else if (!prodotti[codice] && permesse.includes("barcode")) {
     // barcode sconosciuto: si collega al prossimo codice interno letto o scritto, che poi viene aggiunto
@@ -531,9 +532,11 @@ function aggiungi(codice) {
   let r = bozza.righe.find(x => x.codice === codice);
   if (r) r.qta += pezzi;
   else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: pezzi, dichiarata: "", giacenza: giacenze[codice] ?? "" });
+  if (kg) { r.conf = (r.conf || 0) + 1; r.peso ??= (store.get("formati") || {})[codice] || ""; if (r.peso) r.qta = r.conf * r.peso; }
   navigator.vibrate?.(80);
-  avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${r.qta})` : `${codice} non è in anagrafica`);
+  avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${kg ? r.peso ? r.qta + " kg" : "scrivi i kg a confezione" : r.qta})` : `${codice} non è in anagrafica`);
   salva(); disegna();
+  if (kg && !r.peso) document.querySelectorAll("#lista .peso")[bozza.righe.indexOf(r)]?.focus();
 }
 async function salvaBarcode(b, codice) {
   collega = null;
@@ -599,7 +602,13 @@ function disegna() {
       ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>
         <label class="field">Contata ora<span><input type="checkbox" class="switch" ${r.contata ? "checked" : ""} onchange="campo(${i},'contata',this.checked)"></span></label>` : ""}
       ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
-      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : "Quantità"}
+      ${tipo === "acquisti" || store.get("magazzino") !== "resine" ? "" : `<div class="field">Confezioni
+        <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'conf',${r.conf || 0}-1)">−</button>
+        <input type="number" inputmode="numeric" value="${r.conf || 0}" onchange="campo(${i},'conf',this.value)">
+        <button aria-label="Più" onclick="campo(${i},'conf',${r.conf || 0}+1)">+</button></div></div>
+        <div class="field">Kg a confezione<input class="peso" type="number" inputmode="decimal" placeholder="es. 25" value="${esc(r.peso)}" onchange="campo(${i},'peso',this.value)"></div>
+        <button class="btn gray small" onclick="altroFormato(${i})">+ Altro formato</button>`}
+      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : store.get("magazzino") === "resine" ? "Kg" : "Quantità"}
         <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
         <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
@@ -660,7 +669,17 @@ async function annullaSulServer(cosa) {
   if (!j || j.error) return avviso("Non annullato: " + (j?.error || "server non raggiungibile"), 4000), false;
   return true;
 }
-function campo(i, k, v) { bozza.righe[i][k] = k === "qta" ? Math.max(0, Number(v) || 0) : v; salva(); disegna(); }
+// stessa resina in confezioni di peso diverso (es. 1000 kg e 800 kg): una riga per formato, sommate all'invio
+function altroFormato(i) {
+  const r = bozza.righe[i]; bozza.righe.splice(i + 1, 0, { ...r, conf: 1, peso: "", qta: 0 }); salva(); disegna();
+  document.querySelectorAll("#lista .peso")[i + 1]?.focus();
+}
+function campo(i, k, v) {
+  const r = bozza.righe[i]; r[k] = ["qta", "conf", "peso"].includes(k) ? Math.max(0, Number(v) || 0) : v;
+  if (k === "peso") store.set("formati", { ...store.get("formati"), [r.codice]: r.peso }); // la prossima volta il formato è già scritto
+  if ((k === "conf" || k === "peso") && r.peso) r.qta = Math.round(r.conf * r.peso * 1000) / 1000; // kg calcolati; restano correggibili a mano (avanzi)
+  salva(); disegna();
+}
 // riga di un ordine reparto nello scarico: il cestino la annulla anche nell'ordine (altrimenti resterebbe da prelevare)
 async function rimuovi(i) {
   const r = bozza.righe[i];
@@ -677,11 +696,17 @@ async function invia() {
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
   // il motivo serve solo al magazzino principale
+  const senzaKg = tipo === "scarico" && store.get("magazzino") === "resine" && bozza.righe.find(r => !(r.qta > 0));
+  if (senzaKg) return avviso(`Scrivi i kg di ${senzaKg.descrizione || senzaKg.codice}`);
   if (tipo === "scarico" && !store.get("magazzino") && !CAUSALI.includes(bozza.causale)) return avviso("Scegli il motivo dello scarico");
   if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
   const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
+  if (store.get("magazzino") === "resine") { // formati diversi della stessa resina: una riga sola con i kg sommati
+    const tot = {}; bozza.righe.forEach(r => tot[r.codice] ? tot[r.codice].qta += r.qta : tot[r.codice] = { ...r, conf: undefined, peso: undefined });
+    bozza.righe = Object.values(tot); salva();
+  }
   const rif = bozza.riferimento.trim(), op = $("#op").value.trim(), righeOra = JSON.stringify(bozza.righe);
   // nome e data fissati al primo tentativo: se la risposta si perde, il reinvio porta lo stesso documento e il server non lo registra due volte
   if (!bozza.invio) {
