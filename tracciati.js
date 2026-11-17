@@ -40,7 +40,8 @@ function unisci(ordini) {
     if (o.urgente && o.motivo && !u.motivi.includes(o.motivo)) u.motivi.push(o.motivo);
     o.righe.forEach(r => {
       let x = u.righe.find(x => x.codice === r.codice);
-      if (x) x.qta += r.qta; else u.righe.push(x = { codice: r.codice, descrizione: r.descrizione, qta: r.qta, parti: [] });
+      if (x) x.qta += r.qta; else u.righe.push(x = { codice: r.codice, descrizione: r.descrizione, qta: r.qta, ordinata: 0, prelevata: 0, parti: [] });
+      x.ordinata += r.ordinata ?? r.qta; x.prelevata += r.prelevata ?? 0; // storico del residuo (server vecchio: niente prelevato)
       x.parti.push({ ordine: o.id, qta: r.qta });
     });
   });
@@ -84,12 +85,13 @@ function kpi(mov, aperti, giacenze, scorte, nProdotti, ora, giorni) {
   // carichi con la bolla compilata: contato diverso dalla bolla
   const car = mov.filter(m => m[2] === "carico" && m[8] !== ""), nc = car.filter(m => n(m[7]) !== n(m[8]));
   // tempo di evasione: dall'ordine all'ultimo scarico (o chiusura) che lo riguarda, solo per gli ordini non più aperti
-  const nati = {}, chiusi = {}, idAperti = new Set(aperti.map(o => o.id));
+  const nati = {}, chiusi = {}, annullati = new Set(), idAperti = new Set(aperti.map(o => o.id));
   mov.forEach(m => {
     const d = quando(m[1]); if (!d) return;
     if (m[2] === "ordini") nati[m[0]] = d; else if ((m[2] === "scarico" || m[2] === "chiusura") && m[9]) chiusi[m[9]] = d;
+    if (m[2] === "chiusura" && m[11] === "ANNULLATO") annullati.add(m[9]); // ordini sbagliati: non sono evasioni
   });
-  const tempi = Object.keys(nati).filter(id => chiusi[id] && !idAperti.has(id)).map(id => (chiusi[id] - nati[id]) / 36e5);
+  const tempi = Object.keys(nati).filter(id => chiusi[id] && !idAperti.has(id) && !annullati.has(id)).map(id => (chiusi[id] - nati[id]) / 36e5);
   // consumo: le quantità si sommano solo per codice (unità di misura diverse), per reparto si contano prelievi e codici
   const rep = {}, art = {};
   mov.filter(m => m[2] === "scarico" && n(m[7]) > 0).forEach(m => {

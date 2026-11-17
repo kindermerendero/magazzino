@@ -117,6 +117,8 @@
   .ordine { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: var(--card);
             border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
   .ordine > div { flex: 1; min-width: 0; }
+  .rigaOrdine { display: flex; align-items: center; gap: 4px; }
+  .rigaOrdine .del { margin-bottom: 10px; }
   .item .badge { background: #ff9500 !important; }
   .ordine .badge, .item .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
   .ordine svg { color: var(--sec); width: 18px; }
@@ -201,7 +203,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, reparti = store.get("reparti") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, grezzi = [], reparti = store.get("reparti") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
@@ -469,14 +471,35 @@ async function elencoOrdini() {
   $("#conta").textContent = "Caricamento…"; $("#lista").innerHTML = "";
   const j = await fetch(SCRIPT_URL + "?aperti=" + DA[tipo].aperti + "&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
   if (!j || j.error) return disegna(), avviso("Elenco non disponibile: " + (j?.error || "server non raggiungibile"), 3000);
+  grezzi = j.ordini;
   ordini = (tipo === "scarico" ? unisci(j.ordini) : j.ordini).sort((a, b) => !!b.urgente - !!a.urgente); // urgenti in cima, poi dal più vecchio
   if (!ordini.length) return disegna(), avviso("Nessuna " + DA[tipo].nome + " aperta");
   $("#conta").textContent = `Da richiamare (${ordini.length})`;
   $("#lista").innerHTML = ordini.map((o, i) => `
-    <button class="ordine" onclick="evadi(${i})"><div>
+    <div class="rigaOrdine"><button class="ordine" onclick="evadi(${i})"><div>
       <b>${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto || "Richiesta acquisti")}</b>
       ${o.urgente && (o.motivi?.join(" · ") || o.motivo) ? `<small>${esc(o.motivi?.join(" · ") || o.motivo)}</small>` : ""}
-      <small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}${o.ids?.length > 1 ? ` · <b>${o.ids.length} ordini uniti</b>` : ""}</small></div>${ico("avanti")}</button>`).join("");
+      <small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}${o.ids?.length > 1 ? ` · <b>${o.ids.length} ordini uniti</b>` : ""}</small></div>${ico("avanti")}</button>
+    ${tipo === "scarico" && permesse.includes("annulla") ? `<button class="icon del" aria-label="Annulla ordine" onclick="annulla(${i})">${ico("trash")}</button>` : ""}</div>`).join("");
+}
+// ordine reparto sbagliato: chiuso con motivo ANNULLATO, resta nello storico. Ordini uniti: si chiede per ognuno, così si annulla solo quello sbagliato
+async function annulla(i) {
+  const scelti = ordini[i].ids.filter(id => {
+    const o = grezzi.find(x => x.id === id);
+    return confirm(`Annullare l'ordine di ${o.reparto} del ${o.data}?\n\n${o.righe.slice(0, 6).map(r => `• ${r.codice} ${r.descrizione || ""}: ${r.qta}`).join("\n")}${
+      o.righe.length > 6 ? `\n… e altri ${o.righe.length - 6}` : ""}\n\nResta nello storico ma non sarà più da evadere.`);
+  });
+  if (!scelti.length) return;
+  // tracciabilità: chi annulla resta scritto nella riga di chiusura
+  const op = (store.get("operatore") || prompt("Chi annulla l'ordine? (nome)") || "").trim();
+  if (!op) return avviso("Serve il nome di chi annulla", 3000);
+  store.set("operatore", op); if ($("#op")) $("#op").value = op;
+  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ token: store.get("token"), tipo: "annulla", ordini: scelti, operatore: op,
+      data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) }),
+  }).then(r => r.json()).catch(() => null);
+  if (!j || j.error) return avviso("Ordine non annullato: " + (j?.error || "server non raggiungibile"), 4000);
+  avviso(scelti.length > 1 ? scelti.length + " ordini annullati" : "Ordine annullato", 3000); elencoOrdini();
 }
 function evadi(i) {
   if (bozza.righe.length && !confirm("Sostituire gli articoli già scansionati con la " + DA[tipo].nome + "?")) return;
@@ -484,7 +507,7 @@ function evadi(i) {
   bozza = { riferimento: o.reparto, ordine: o.id, ordini: o.ids, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti") + (o.ids?.length > 1 ? ` (${o.ids.length} ordini uniti)` : ""),
             // bolla: quantità del DDT già scritte come "in bolla" e come arrivate; il magazziniere corregge solo quelle che non tornano
             righe: o.righe.map(r => o.tipo === "bolla" ? { codice: r.codice, descrizione: r.descrizione, qta: r.qta, dichiarata: r.qta }
-              : { codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, parti: r.parti, qta: 0, dichiarata: "" }) };
+              : { codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, ordinata: r.ordinata, prelevata: r.prelevata, parti: r.parti, qta: 0, dichiarata: "" }) };
   salva(); apri(tipo);
 }
 function sganciaOrdine() {
@@ -569,7 +592,8 @@ function disegna() {
       <div class="top"><div><b>${esc(r.codice)}</b><small>${esc(r.descrizione) || "Non in anagrafica"}</small></div>
         <button class="icon del" aria-label="Rimuovi" onclick="rimuovi(${i})">${ico("trash")}</button></div>
       ${tipo === "scarico" ? `<button class="ubi ${ubicazioni[r.codice] ? "" : "vuota"}" onclick="modificaUbicazione(${i})">${ico("pin")}${esc(ubicazioni[r.codice]) || "Ubicazione non nota"} <span>Modifica</span></button>` : ""}
-      ${r.richiesta !== undefined ? `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>` : ""}
+      ${r.richiesta === undefined ? "" : r.prelevata > 0 ? `<div class="meta">Ordinati ${r.ordinata} · già prelevati ${r.prelevata} · da prelevare: <strong>${r.richiesta}</strong></div>`
+        : `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>`}
       ${tipo === "acquisti" && richiesti[r.codice] ? `<div class="meta"><span class="badge">GIÀ RICHIESTO</span> il ${esc(richiesti[r.codice])}</div>` : ""}
       ${(tipo === "acquisti" || tipo === "scarico") && scorte[r.codice] ? `<div class="meta">Scorta min: <strong>${esc(scorte[r.codice][0]) || "–"}</strong> · max: <strong>${esc(scorte[r.codice][1]) || "–"}</strong></div>` : ""}
       ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>
