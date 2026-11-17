@@ -110,6 +110,9 @@
                                    color: var(--label); text-align: center; outline: none; }
   .field > input { background: var(--fill); border-radius: 10px; width: 96px; }
   .item .foto { margin-top: 12px; }
+  .testo { display: block; width: 100%; box-sizing: border-box; height: 42px; margin-top: 10px; border: 0; border-radius: 10px; padding: 0 12px;
+           background: var(--fill); color: var(--label); font: 17px -apple-system, system-ui; outline: none; }
+  .anteprima { display: block; max-width: 100%; max-height: 180px; border-radius: 8px; margin-top: 12px; }
 
   .ordine { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: var(--card);
             border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
@@ -176,6 +179,7 @@ const ICO = {
   chiudi: '<path d="M6 6l12 12M18 6L6 18"/>',
   occhio: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   elenco: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  catalogo: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6"/>',
 };
 const ico = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
 const APPS = {
@@ -184,6 +188,7 @@ const APPS = {
   inventario: { nome: "Inventario", colore: "#007aff", rif: "Ubicazione", invia: "Salva inventario" },
   ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto", invia: "Invia ordine" },
   acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500", invia: "Invia richiesta" },
+  catalogo:   { nome: "Modifica catalogo", colore: "#5856d6", invia: "Invia al capo produzione" },
 };
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto, il carico le richieste d'acquisto
 // motivo dello scarico, obbligatorio: finisce nell'Excel, nel nome del file e nella colonna Motivo dei movimenti
@@ -196,7 +201,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, reparti = store.get("reparti") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [];
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
@@ -209,6 +214,7 @@ async function caricaProdotti(token) {
   ubicazioni = j.ubicazioni || {}; store.set("ubicazioni", ubicazioni);
   giacenze = j.giacenze || {}; store.set("giacenze", giacenze);
   scorte = j.scorte || {}; store.set("scorte", scorte);
+  reparti = j.reparti || {}; store.set("reparti", reparti); // catalogo di ogni reparto: [fornitore, codice]
   foto = j.foto || {}; store.set("foto", foto); return true;
 }
 
@@ -416,6 +422,7 @@ function apri(t) {
   bozza = store.get(chiaveBozza(t)) || { riferimento: "", righe: [] };
   if (t === "inventario" && store.get("magazzino") === "resine" && !bozza.riferimento) bozza.riferimento = "Magazzino resine";
   testata(a.nome, true);
+  if (t === "catalogo") return vistaCatalogo();
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
     ${!DA[t] || !permesse.includes("elenco") ? "" : bozza.ordine
@@ -590,7 +597,13 @@ async function modificaUbicazione(i) {
   store.set("ubicazioni", ubicazioni); disegna(); avviso(`Ubicazione di ${codice} salvata`);
 }
 
-// foto ridotta sul telefono (lato lungo 1200 px, JPEG) per un invio rapido anche con wifi scarso
+// foto ridotta sul telefono (lato lungo `lato` px, JPEG) per un invio rapido anche con wifi scarso → base64 senza intestazione
+async function riduci(file, lato) {
+  const img = await createImageBitmap(file), k = Math.min(1, lato / Math.max(img.width, img.height));
+  const cv = Object.assign(document.createElement("canvas"), { width: img.width * k, height: img.height * k });
+  cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+  return cv.toDataURL("image/jpeg", 0.8).split(",")[1];
+}
 function scattaFoto(i, btn) {
   const codice = bozza.righe[i].codice, inp = $("#fotoInput");
   inp.value = ""; // stessa foto due volte deve comunque generare "change"
@@ -599,12 +612,10 @@ function scattaFoto(i, btn) {
     btn.disabled = true; btn.textContent = "Caricamento foto…";
     let j;
     try {
-      const img = await createImageBitmap(inp.files[0]), k = Math.min(1, 1200 / Math.max(img.width, img.height));
-      const cv = Object.assign(document.createElement("canvas"), { width: img.width * k, height: img.height * k });
-      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      const file = await riduci(inp.files[0], 1200);
       j = await fetch(SCRIPT_URL, {
         method: "POST", headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ token: store.get("token"), tipo: "foto", codice, file: cv.toDataURL("image/jpeg", 0.8).split(",")[1] }),
+        body: JSON.stringify({ token: store.get("token"), tipo: "foto", codice, file }),
       }).then(r => r.json()).catch(() => ({ error: "server non raggiungibile" }));
     } catch (e) { j = { error: "immagine non leggibile (" + e.message + ")" }; }
     if (j.error) { btn.disabled = false; btn.innerHTML = ico("camera") + "Foto prodotto"; return avviso("Foto non salvata: " + j.error, 6000); }
@@ -655,6 +666,88 @@ async function invia() {
   bozza = { riferimento: "", righe: [] }; salva(); apri(tipo);
   if (j.avviso === false) avviso("Ordine salvato, ma l'avviso al magazzino NON è partito: chiama il magazziniere", 6000);
   else avviso(j.avviso ? "Salvato e magazziniere avvisato" : "Salvato: " + j.file, 3000);
+}
+
+// Modifica catalogo (reparti): articoli da aggiungere (come li chiamano, codice se lo trovano, foto) e da togliere dal catalogo
+// del reparto. Tutto va nel foglio "Richieste modifica cataloghi", dove il capo produzione approva
+function vistaCatalogo() {
+  const rep = bozza.riferimento;
+  $("#main").innerHTML = `
+    <div class="group">
+      <label class="cell"><span>Reparto</span><select id="rif"><option value="">Scegli…</option>${
+        Object.keys(reparti).sort().map(r => `<option ${r === rep ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label>
+    </div>
+    <h2>Da aggiungere</h2>
+    <div id="agg"></div>
+    <button class="btn gray" style="margin-bottom:20px" onclick="bozza.righe.push({ nome: '', codice: '' }); salva(); disegnaAggiunte()">+ Articolo da aggiungere</button>
+    ${rep ? `<h2>Da togliere (${(reparti[rep] || []).length} nel catalogo)</h2>
+      <div class="group"><div class="cell"><input id="filtro" placeholder="Cerca nel catalogo"></div></div>
+      <div id="tog"></div>` : `<p class="note">Scegli il reparto per vedere il suo catalogo e togliere articoli.</p>`}
+    <datalist id="prodList">${Object.entries(prodotti).map(([c, d]) => `<option value="${esc(c)} — ${esc(d)}">`).join("")}</datalist>
+    <div class="bar"><button class="btn" id="invia" onclick="inviaCatalogo()">${APPS.catalogo.invia}</button></div>`;
+  $("#rif").onchange = e => { bozza.riferimento = e.target.value; bozza.togli = {}; salva(); vistaCatalogo(); };
+  if (rep) $("#filtro").oninput = disegnaTogli, disegnaTogli();
+  disegnaAggiunte();
+}
+// i campi salvano senza ridisegnare: un ridisegno durante il blur farebbe perdere il tocco sul campo successivo
+function disegnaAggiunte() {
+  $("#agg").innerHTML = bozza.righe.map((r, i) => `
+    <div class="item">
+      <div class="top"><div><b>Articolo ${i + 1}</b><small id="desc${i}">${esc(r.codice ? r.codice + " — " + (prodotti[r.codice] || "non in anagrafica") : "Codice non indicato")}</small></div>
+        <button class="icon del" aria-label="Rimuovi" onclick="bozza.righe.splice(${i}, 1); salva(); disegnaAggiunte()">${ico("trash")}</button></div>
+      <input class="testo" placeholder="Come lo chiamate (obbligatorio)" value="${esc(r.nome)}" oninput="voce(${i}, 'nome', this.value)">
+      <input class="testo" list="prodList" placeholder="Codice o descrizione, se lo trovi" value="${esc(r.codice)}" onchange="voce(${i}, 'codice', this.value.split(' — ')[0].trim())">
+      ${r.foto ? `<img class="anteprima" src="data:image/jpeg;base64,${r.foto}" alt="">` : ""}
+      <button class="btn gray small foto" onclick="fotoAggiunta(${i}, this)">${ico("camera")}${r.foto ? "Cambia foto" : "Foto"}</button>
+    </div>`).join("");
+}
+function voce(i, k, v) {
+  bozza.righe[i][k] = v; salva();
+  if (k === "codice") $("#desc" + i).textContent = v ? v + " — " + (prodotti[v] || "non in anagrafica") : "Codice non indicato";
+}
+function fotoAggiunta(i, btn) {
+  const inp = $("#fotoInput"); inp.value = "";
+  inp.onchange = async () => {
+    if (!inp.files[0]) return;
+    btn.disabled = true; btn.textContent = "Elaboro la foto…";
+    // ponytail: le foto stanno nella bozza in localStorage (~100 KB l'una); oltre i ~5 MB del browser restano solo in memoria fino all'invio
+    try { bozza.righe[i].foto = await riduci(inp.files[0], 1000); salva(); } catch (e) { avviso("Foto non leggibile: " + e.message, 4000); }
+    disegnaAggiunte();
+  };
+  inp.click();
+}
+function disegnaTogli() {
+  const f = $("#filtro").value.trim().toUpperCase(), t = bozza.togli ||= {};
+  $("#tog").innerHTML = (reparti[bozza.riferimento] || []).map(([, c], i) => [c, i])
+    .filter(([c]) => (c + " " + (prodotti[c] || "")).toUpperCase().includes(f)).map(([c, i]) => `
+    <label class="item ${t[c] ? "ko" : ""}"><div class="top"><div><b>${esc(c)}</b><small>${esc(prodotti[c]) || "Non in anagrafica"}</small></div>
+      <input type="checkbox" class="switch" aria-label="Togli" ${t[c] ? "checked" : ""} onchange="segnaTogli(${i}, this)"></div></label>`).join("");
+}
+function segnaTogli(i, el) {
+  const c = reparti[bozza.riferimento][i][1];
+  if (el.checked) bozza.togli[c] = 1; else delete bozza.togli[c];
+  el.closest(".item").classList.toggle("ko", el.checked); salva();
+}
+async function inviaCatalogo() {
+  const togli = Object.keys(bozza.togli || {});
+  if (!bozza.riferimento) return avviso("Scegli il reparto");
+  if (!bozza.righe.length && !togli.length) return avviso("Niente da inviare");
+  if (bozza.righe.some(r => !r.nome.trim())) return avviso("Scrivi come chiamate ogni articolo da aggiungere", 3000);
+  const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
+  const righe = [...bozza.righe.map(r => ({ azione: "Aggiungere", nome: r.nome, codice: r.codice, descrizione: prodotti[r.codice] || "", foto: r.foto })),
+                 ...togli.map(c => ({ azione: "Togliere", codice: c, descrizione: prodotti[c] || "" }))], ora = JSON.stringify(righe);
+  // id e data fissati al primo tentativo, come in invia(): il reinvio dopo una risposta persa non duplica
+  if (!bozza.invio) bozza.invio = { doc: "catalogo_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), righe: ora,
+                                    data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) }, salva();
+  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ token: store.get("token"), tipo: "catalogo", doc: bozza.invio.doc, data: bozza.invio.data, reparto: bozza.riferimento, righe }),
+  }).then(r => r.json()).catch(() => null);
+  if (!j || j.error) return btn.disabled = false, btn.textContent = APPS.catalogo.invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
+  if (j.duplicato && bozza.invio.righe !== ora) {
+    delete bozza.invio; salva(); btn.disabled = false; btn.textContent = APPS.catalogo.invia;
+    return alert("Il primo invio era già arrivato: le modifiche fatte dopo NON sono salvate.\nTogli le richieste già inviate, lascia solo le nuove e invia di nuovo.");
+  }
+  bozza = { riferimento: bozza.riferimento, righe: [] }; salva(); vistaCatalogo(); avviso("Richiesta inviata al capo produzione", 3000);
 }
 
 const tok = store.get("token");
