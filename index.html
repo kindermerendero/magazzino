@@ -194,10 +194,10 @@ const APPS = {
   acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500", invia: "Invia richiesta" },
   catalogo:   { nome: "Modifica catalogo", colore: "#5856d6", invia: "Invia al capo produzione" },
 };
-// richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto, il carico le richieste d'acquisto
+// richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto
 // motivo dello scarico, obbligatorio: finisce nell'Excel, nel nome del file e nella colonna Motivo dei movimenti
 const CAUSALI = ["Produzione", "Ricambi", "Ricavi Commerciali"];
-const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" }, carico: { aperti: "acquisti,bolla", nome: "bolla o richiesta d'acquisto", icona: "acquisti" } };
+const DA = { scarico: { aperti: "ordini", nome: "ordine reparto", icona: "ordini" } };
 // URL della distribuzione Apps Script (Distribuisci > Applicazione web)
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyTPOkCB28INWWQgK7CcP8pGIuwxJg_jvk-OxIVAbgadqml9J6At4d8NooJVZrUd99VPA/exec";
 const $ = s => document.querySelector(s);
@@ -286,42 +286,6 @@ const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><th
   <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
 
 // ufficio acquisti (permesso "giacenze"): sola lettura da computer, un magazzino alla volta scelto dal menu
-// DDT esportato da Giove (.XLS): diventa una bolla aperta che il magazziniere richiama nel Carico, controlla e registra.
-// L'Excel va solo in bolle/ come archivio; il nome del documento (fornitore + numero) blocca il doppio caricamento
-async function caricaBolla(input) {
-  const files = [...input.files]; input.value = ""; if (!files.length) return;
-  const t = x => String(x ?? "").trim(), bolle = [], scarti = [], anag = vistaAcquisti.prodotti || {};
-  for (const file of files) {
-    let rows;
-    try { const wb = XLSX.read(await file.arrayBuffer()); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }); }
-    catch { scarti.push(`${file.name}: file non leggibile`); continue; }
-    const riga = testo => rows.findIndex(r => t(r[0]) === testo), iDoc = riga("TIPO DOCUMENTO"), iArt = riga("CODICE ARTICOLO");
-    if (iDoc < 0 || iArt < 0) { scarti.push(`${file.name}: non è una bolla di Giove`); continue; }
-    // la quantità sta sotto "QUANTITA'" o nella colonna prima (dipende dalle celle unite); righe senza quantità = intestazioni ripetute
-    const righe = rows.slice(iArt + 1).map(r => ({ codice: t(r[0]), descrizione: t(r[3]), qta: Number(t(r[10] || r[11]).replace(",", ".")) }))
-      .filter(r => r.codice && r.qta > 0);
-    if (!righe.length) { scarti.push(`${file.name}: nessun articolo con quantità`); continue; }
-    bolle.push({ fornitore: t(rows[1]?.[0]), numero: t(rows[iDoc + 2]?.[3]), dataDoc: t(rows[iDoc + 2]?.[4]), righe });
-  }
-  const mag = vistaAcquisti.mag || "", ignoti = [...new Set(bolle.flatMap(b => b.righe.filter(r => !anag[r.codice]).map(r => r.codice)))];
-  if (!bolle.length) return alert("Nessuna bolla da caricare:\n" + scarti.join("\n"));
-  if (!confirm(bolle.map(b => `Bolla ${b.numero} del ${b.dataDoc} — ${b.fornitore}: ${b.righe.length} articoli`).join("\n") +
-    (scarti.length ? `\n\nScartati:\n${scarti.join("\n")}` : "") + (ignoti.length ? `\n\nNon in anagrafica: ${ignoti.join(", ")}` : "") +
-    `\n\nMandare ${bolle.length === 1 ? "la bolla" : `le ${bolle.length} bolle`} al magazzino ${mag ? mag[0].toUpperCase() + mag.slice(1) : "Principale"} per il controllo?\nLe troverà nel Carico, con "Richiama bolla o richiesta d'acquisto".`)) return;
-  const esiti = [];
-  for (const b of bolle) { // una alla volta: il server le scrive comunque in fila
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`DDT ${b.numero} del ${b.dataDoc}`, b.fornitore], [], ["Codice", "Descrizione", "Quantità"], ...b.righe.map(r => [r.codice, r.descrizione, r.qta])]), "bolla");
-    const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ token: store.get("token"), tipo: "bolla", mag, nome: `DDT ${b.fornitore} ${b.numero}.xlsx`, file: XLSX.write(wb, { type: "base64", bookType: "xlsx" }), reparto: `DDT ${b.numero} del ${b.dataDoc} ${b.fornitore}`,
-        data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }), operatore: "Ufficio acquisti",
-        righe: b.righe.map(r => ({ ...r, attesa: r.qta })) }) }).then(r => r.json()).catch(() => null);
-    esiti.push(`Bolla ${b.numero} ${b.fornitore}: ` + (!j || j.error ? "ERRORE " + (j?.error || "server non raggiungibile") + ", riprova" : j.duplicato ? "già caricata, saltata" : "mandata al magazzino"));
-  }
-  alert(esiti.join("\n"));
-  vistaAcquisti();
-}
-
 async function vistaAcquisti(mag) {
   const m = vistaAcquisti.mag = mag ?? vistaAcquisti.mag ?? "";
   testata("Acquisti", false); $("#main").className = "admin";
@@ -330,7 +294,7 @@ async function vistaAcquisti(mag) {
   if (!permesse.includes("giacenze") || vistaAcquisti.mag !== m) return; // nel frattempo è uscito o ha cambiato magazzino
   if (!j || j.error) return $("#main").innerHTML = `<div class="tab"><p>Dati non disponibili: ${esc(j?.error || "server non raggiungibile")}</p></div>
     <button class="link" onclick="vistaAcquisti()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
-  const g = j.giacenze || {}, sc = j.scorte || {}, p = vistaAcquisti.prodotti = j.prodotti || {}, aperti = (j.aperti || []).filter(o => o.tipo !== "bolla"), bolle = (j.aperti || []).filter(o => o.tipo === "bolla"), num = v => v === "" || v == null ? "" : esc(v);
+  const g = j.giacenze || {}, sc = j.scorte || {}, p = vistaAcquisti.prodotti = j.prodotti || {}, aperti = j.aperti || [], num = v => v === "" || v == null ? "" : esc(v);
   const richiesto = {}; // codice → data della prima richiesta d'acquisto aperta che lo contiene
   aperti.forEach(o => o.righe.forEach(r => richiesto[r.codice] = richiesto[r.codice] || o.data));
   const sotto = c => sc[c] && sc[c][0] !== "" && g[c] < sc[c][0];
@@ -338,8 +302,7 @@ async function vistaAcquisti(mag) {
   const riga = (c, extra = "") => `<tr class="${sotto(c) ? "sotto" : ""}"><td>${esc(c)}</td><td>${esc(p[c])}</td><td class="n">${num(g[c])}</td><td class="n">${num(sc[c]?.[0])}</td><td class="n">${num(sc[c]?.[1])}</td>${extra}</tr>`;
   const nome = x => x ? x[0].toUpperCase() + x.slice(1) : "Principale";
   $("#main").innerHTML = `
-    <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select>
-      ${permesse.includes("bolla") ? `<label class="btn gray" style="display:inline-flex;width:auto;margin-left:12px">Carica bolle da Giove<input type="file" accept=".xls,.xlsx" multiple hidden onchange="caricaBolla(this)"></label>` : ""}</h2>
+    <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select></h2>
     <div class="kpi"><div><b>${codici.length ? sottoscorta.length : "—"}</b>Articoli sottoscorta<small>${codici.length ? `${sottoscorta.filter(c => richiesto[c]).length} già richiesti` : "giacenze ignote fino al primo inventario"}</small></div>
       <div><b>${aperti.length}</b>Richieste d'acquisto aperte</div>
       <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
@@ -348,9 +311,6 @@ async function vistaAcquisti(mag) {
         codici.length ? "Nessun articolo sotto la scorta minima fra quelli con giacenza nota" : "Giacenze non ancora note: il sottoscorta si vedrà dopo il primo inventario fatto dall'app")}</section>
     <section><h2>Richieste d'acquisto aperte</h2>
       ${tab("tAcq", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], aperti.map(o => capo(o, 5) + o.righe.map(r => riga(r.codice)).join("")).join(""), "Nessuna richiesta aperta")}</section></div>
-    <h2>Bolle da controllare in magazzino</h2>
-    ${tab("tBol", ["Codice", "Descrizione", "#Quantità in bolla"], bolle.map(o => capo(o, 3) + o.righe.map(r => `<tr><td>${esc(r.codice)}</td><td>${esc(r.descrizione)}</td><td class="n">${num(r.qta)}</td></tr>`).join("")).join(""),
-      "Nessuna bolla in attesa: quelle controllate sono nella cartella carico/, pronte per Giove")}
     <h2>Giacenze <input type="search" placeholder="Cerca codice o descrizione" oninput="cerca(this, 'tGia')"></h2>
     ${tab("tGia", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], codici.map(c => riga(c)).join(""),
       "Nessuna giacenza nota: un codice compare qui dopo il primo inventario fatto dall'app")}
@@ -373,7 +333,6 @@ function disegnaAdmin(errore) {
       <div><b>${k.tempo == null ? "—" : k.tempo < 48 ? Math.round(k.tempo) + " h" : Math.round(k.tempo / 24) + " g"}</b>Tempo medio di evasione<small>su ${k.evasi} ordini chiusi</small></div>
       <div><b>${acq.length}</b>Richieste d'acquisto aperte</div>
       <div><b>${k.contati ? k.daRichiedere.length : "—"}</b>Sottoscorta da richiedere<small>${k.contati ? `su ${k.sotto} sottoscorta, fra i ${k.contati} codici contati` : "giacenze ignote fino al primo inventario"}</small></div>
-      <div><b>${perc(k.nonConformi)}</b>Non conformità al carico<small>su ${k.carichi} righe con bolla</small></div>
       <div><b>${perc(k.copertura)}</b>Copertura inventario<small>${k.contati} codici contati su ${Object.keys(prodotti).length}</small></div>
       <div><b>${docOggi}</b>Documenti registrati oggi</div></div>
     ${errore ? `<p class="note red" style="margin:0 4px 16px">${esc(errore)}</p>` : ""}
@@ -396,10 +355,6 @@ function disegnaAdmin(errore) {
     <section><h2>Articoli più scaricati</h2>
       ${tab("tArt", ["Codice", "Descrizione", "#Prelievi", "#Quantità"], k.articoli.map(x =>
         `<tr><td>${esc(x.codice)}</td><td>${esc(x.descrizione)}</td><td class="n">${x.prelievi}</td><td class="n">${x.qta}</td></tr>`).join(""), "Nessuno scarico nel periodo")}</section></div>
-    <h2>Carichi non conformi</h2>
-    ${tab("tNc", ["Data", "Operatore", "Codice", "Descrizione", "#Bolla", "#Contata", "#Differenza"], k.righeNC.map(m =>
-      `<tr><td>${esc(m[1])}</td><td>${esc(m[3])}</td><td>${esc(m[5])}</td><td>${esc(m[6])}</td><td class="n">${esc(m[8])}</td><td class="n">${esc(m[7])}</td><td class="n">${Math.round((Number(m[7]) - Number(m[8])) * 1000) / 1000}</td></tr>`).join(""),
-      "Nessun carico diverso dalla bolla nel periodo")}
     <h2>Giacenze <input type="search" placeholder="Cerca codice, descrizione, ubicazione" oninput="cerca(this, 'tGia')"></h2>
     ${tab("tGia", ["Codice", "Descrizione", "Ubicazione", "#Giacenza", "#Scorta min", "#Scorta max"], codici.map(c =>
       `<tr class="${sotto(c) ? "sotto" : ""}"><td>${esc(c)}</td><td>${esc(prodotti[c])}</td><td>${esc(ubicazioni[c])}</td><td class="n">${num(giacenze[c])}</td><td class="n">${num(scorte[c]?.[0])}</td><td class="n">${num(scorte[c]?.[1])}</td></tr>`).join(""),
@@ -505,9 +460,7 @@ function evadi(i) {
   if (bozza.righe.length && !confirm("Sostituire gli articoli già scansionati con la " + DA[tipo].nome + "?")) return;
   const o = ordini[i];
   bozza = { riferimento: o.reparto, ordine: o.id, ordini: o.ids, causale: tipo === "scarico" ? CAUSALI[0] : undefined, dataOrdine: o.data, nomeOrdine: (o.urgente ? "URGENTE " : "") + (o.reparto || "Richiesta acquisti") + (o.ids?.length > 1 ? ` (${o.ids.length} ordini uniti)` : ""),
-            // bolla: quantità del DDT già scritte come "in bolla" e come arrivate; il magazziniere corregge solo quelle che non tornano
-            righe: o.righe.map(r => o.tipo === "bolla" ? { codice: r.codice, descrizione: r.descrizione, qta: r.qta, dichiarata: r.qta }
-              : { codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, ordinata: r.ordinata, prelevata: r.prelevata, parti: r.parti, qta: 0, dichiarata: "" }) };
+            righe: o.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, richiesta: r.qta, ordinata: r.ordinata, prelevata: r.prelevata, parti: r.parti, qta: 0 })) };
   salva(); apri(tipo);
 }
 function sganciaOrdine() {
@@ -531,7 +484,7 @@ function aggiungi(codice) {
   if (collega && prodotti[codice]) return salvaBarcode(collega, codice);
   let r = bozza.righe.find(x => x.codice === codice);
   if (r) r.qta += pezzi;
-  else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: pezzi, dichiarata: "", giacenza: giacenze[codice] ?? "" });
+  else bozza.righe.unshift(r = { codice, descrizione: prodotti[codice] || "", qta: pezzi, giacenza: giacenze[codice] ?? "" });
   if (kg) { r.conf = (r.conf || 0) + 1; r.peso ??= (store.get("formati") || {})[codice] || ""; if (r.peso) r.qta = r.conf * r.peso; }
   navigator.vibrate?.(80);
   avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${kg ? r.peso ? r.qta + " kg" : "scrivi i kg a confezione" : r.qta})` : `${codice} non è in anagrafica`);
@@ -562,7 +515,7 @@ async function sottoscorta() {
   const [, verificati] = await Promise.all([caricaProdotti(store.get("token")), caricaRichiesti()]);
   const sotto = Object.keys(scorte).filter(c => giacenze[c] !== undefined && scorte[c][0] !== "" && giacenze[c] < scorte[c][0] && !bozza.righe.some(r => r.codice === c));
   if (!sotto.length) return avviso(Object.keys(giacenze).length ? "Nessun altro articolo sotto la scorta minima" : "Giacenze non ancora note: serve un inventario", 4000);
-  sotto.forEach(c => bozza.righe.push({ codice: c, descrizione: prodotti[c] || "", qta: 1, dichiarata: "", giacenza: giacenze[c] }));
+  sotto.forEach(c => bozza.righe.push({ codice: c, descrizione: prodotti[c] || "", qta: 1, giacenza: giacenze[c] }));
   salva(); disegna(); avviso(sotto.length + " articoli sottoscorta aggiunti" + (verificati ? "" : " — richieste già fatte non verificate: server non raggiungibile"), verificati ? 3000 : 6000);
 }
 function manuale() { const i = $("#cod"); aggiungi(i.value); i.value = ""; i.focus(); }
@@ -584,8 +537,7 @@ async function toggleCam() {
 
 function stato(r) {
   if (tipo === "scarico" && r.richiesta !== undefined) return r.qta >= r.richiesta ? "ok" : r.qta ? "warn" : "ko";
-  if (tipo !== "carico" || r.dichiarata === "") return r.descrizione ? "" : "warn";
-  return Number(r.dichiarata) === Number(r.qta) ? "ok" : "ko";
+  return r.descrizione ? "" : "warn";
 }
 function disegna() {
   const n = bozza.righe.length;
@@ -596,19 +548,18 @@ function disegna() {
         <button class="icon del" aria-label="Rimuovi" onclick="rimuovi(${i})">${ico("trash")}</button></div>
       ${tipo === "scarico" ? `<button class="ubi ${ubicazioni[r.codice] ? "" : "vuota"}" onclick="modificaUbicazione(${i})">${ico("pin")}${esc(ubicazioni[r.codice]) || "Ubicazione non nota"} <span>Modifica</span></button>` : ""}
       ${r.richiesta === undefined ? "" : r.prelevata > 0 ? `<div class="meta">Ordinati ${r.ordinata} · già prelevati ${r.prelevata} · da prelevare: <strong>${r.richiesta}</strong></div>`
-        : `<div class="meta">${tipo === "carico" ? "Ordinati" : "Richiesti"}: <strong>${r.richiesta}</strong></div>`}
+        : `<div class="meta">Richiesti: <strong>${r.richiesta}</strong></div>`}
       ${tipo === "acquisti" && richiesti[r.codice] ? `<div class="meta"><span class="badge">GIÀ RICHIESTO</span> il ${esc(richiesti[r.codice])}</div>` : ""}
       ${(tipo === "acquisti" || tipo === "scarico") && scorte[r.codice] ? `<div class="meta">Scorta min: <strong>${esc(scorte[r.codice][0]) || "–"}</strong> · max: <strong>${esc(scorte[r.codice][1]) || "–"}</strong></div>` : ""}
       ${tipo === "acquisti" ? `<div class="field">Giacenza attuale<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.giacenza)}" onchange="campo(${i},'giacenza',this.value)"></div>
         <label class="field">Contata ora<span><input type="checkbox" class="switch" ${r.contata ? "checked" : ""} onchange="campo(${i},'contata',this.checked)"></span></label>` : ""}
-      ${tipo === "carico" ? `<div class="field">Quantità in bolla<input type="number" inputmode="decimal" placeholder="–" value="${esc(r.dichiarata)}" onchange="campo(${i},'dichiarata',this.value)"></div>` : ""}
       ${tipo === "acquisti" || store.get("magazzino") !== "resine" ? "" : `<div class="field">Confezioni
         <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'conf',${r.conf || 0}-1)">−</button>
         <input type="number" inputmode="numeric" value="${r.conf || 0}" onchange="campo(${i},'conf',this.value)">
         <button aria-label="Più" onclick="campo(${i},'conf',${r.conf || 0}+1)">+</button></div></div>
         <div class="field">Kg a confezione<input class="peso" type="number" inputmode="decimal" placeholder="es. 25" value="${esc(r.peso)}" onchange="campo(${i},'peso',this.value)"></div>
         <button class="btn gray small" onclick="altroFormato(${i})">+ Altro formato</button>`}
-      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Contati" : r.richiesta !== undefined ? "Prelevati" : store.get("magazzino") === "resine" ? "Kg" : "Quantità"}
+      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Arrivati" : r.richiesta !== undefined ? "Prelevati" : store.get("magazzino") === "resine" ? "Kg" : "Quantità"}
         <div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
         <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
@@ -699,7 +650,6 @@ async function invia() {
   const senzaKg = tipo === "scarico" && store.get("magazzino") === "resine" && bozza.righe.find(r => !(r.qta > 0));
   if (senzaKg) return avviso(`Scrivi i kg di ${senzaKg.descrizione || senzaKg.codice}`);
   if (tipo === "scarico" && !store.get("magazzino") && !CAUSALI.includes(bozza.causale)) return avviso("Scegli il motivo dello scarico");
-  if (tipo === "carico" && bozza.righe.some(r => r.dichiarata === "")) return avviso("Manca la quantità in bolla su qualche riga");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
   if (tipo === "ordini" && bozza.urgente && !bozza.motivo?.trim()) return avviso("Scrivi il motivo dell'urgenza");
   const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
@@ -725,7 +675,7 @@ async function invia() {
       ordine: bozza.ordine, ordini: bozza.ordini, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : tipo === "scarico" ? bozza.causale : "",
       // riga unita da più ordini: una riga di movimento per ciascun ordine di partenza (l'Excel resta con una riga sola)
       righe: bozza.righe.flatMap(r => (r.parti ? ripartisci(r.qta, r.parti) : [{ qta: tipo === "acquisti" ? "" : r.qta, contata: tipo === "acquisti" && r.contata ? Number(r.giacenza) : undefined, // "Contata ora": vale come inventario
-        attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : tipo === "acquisti" ? r.giacenza : "" }]).map(x => ({ codice: r.codice, descrizione: r.descrizione, ...x }))) }),
+        attesa: tipo === "scarico" ? r.richiesta : tipo === "acquisti" ? r.giacenza : "" }]).map(x => ({ codice: r.codice, descrizione: r.descrizione, ...x }))) }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = APPS[tipo].invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
   // il primo invio era arrivato, ma nel frattempo la bozza è cambiata: quelle modifiche non sono sul server

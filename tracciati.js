@@ -1,6 +1,6 @@
 // ponytail: tracciati generici, da sostituire con quelli del gestionale per ciascuna funzione
 const TRACCIATI = {
-  carico:     ["Data", "Operatore", "Codice", "Descrizione", "Qta bolla", "Qta contata", "Differenza", "Esito", "Qta ordinata"],
+  carico:     ["Data", "Operatore", "Codice", "Descrizione", "Qta caricata"],
   scarico:    ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta", "Qta prelevata", "Mancante", "Esito", "Motivo"],
   inventario: ["Data", "Ubicazione", "Operatore", "Codice", "Descrizione", "Qta contata"],
   ordini:     ["Data", "Reparto", "Operatore", "Codice", "Descrizione", "Qta richiesta"],
@@ -16,9 +16,7 @@ function rigaExcel(tipo, data, rif, operatore, r) {
     return [...base, rich, qta, Math.max(0, rich - qta), qta >= rich ? "EVASO" : qta === 0 ? "NON DISPONIBILE" : "PARZIALE", r.causale || ""];
   }
   if (tipo === "acquisti") return [...base, Number(r.giacenza), r.urgente ? "SI" : "", ...(r.scorta || ["", ""])];
-  if (tipo !== "carico") return [...base, qta];
-  const dich = Number(r.dichiarata), diff = qta - dich;
-  return [...base, dich, qta, diff, diff === 0 ? "OK" : "NON CONFORME", r.richiesta ?? ""];
+  return [...base, qta];
 }
 
 function nomeFile(tipo, d, rif) {
@@ -82,8 +80,6 @@ function kpi(mov, aperti, giacenze, scorte, nProdotti, ora, giorni) {
   // sotto la scorta minima e in nessuna richiesta d'acquisto aperta
   const richiesti = new Set(aperti.filter(o => o.tipo === "acquisti").flatMap(o => o.righe.map(r => r.codice)));
   const sotto = Object.keys(giacenze).filter(c => scorte[c] && scorte[c][0] !== "" && giacenze[c] < scorte[c][0]);
-  // carichi con la bolla compilata: contato diverso dalla bolla
-  const car = mov.filter(m => m[2] === "carico" && m[8] !== ""), nc = car.filter(m => n(m[7]) !== n(m[8]));
   // tempo di evasione: dall'ordine all'ultimo scarico (o chiusura) che lo riguarda, solo per gli ordini non più aperti
   const nati = {}, chiusi = {}, annullati = new Set(), idAperti = new Set(aperti.map(o => o.id));
   mov.forEach(m => {
@@ -105,7 +101,6 @@ function kpi(mov, aperti, giacenze, scorte, nProdotti, ora, giorni) {
     evasione: pct(prel.length - prel.filter(m => n(m[7]) < n(m[8])).length, prel.length), righeOrdine: prel.length,
     mancanti: Object.values(manc).sort((a, b) => b.volte - a.volte || b.qta - a.qta).slice(0, 10),
     sotto: sotto.length, daRichiedere: sotto.filter(c => !richiesti.has(c)),
-    nonConformi: pct(nc.length, car.length), carichi: car.length, righeNC: nc.slice().reverse(),
     copertura: pct(Object.keys(giacenze).length, nProdotti), contati: Object.keys(giacenze).length,
     tempo: tempi.length ? tempi.reduce((a, b) => a + b, 0) / tempi.length : null, evasi: tempi.length,
     reparti: Object.values(rep).map(x => ({ ...x, codici: x.codici.size })).sort((a, b) => b.prelievi - a.prelievi),
