@@ -725,7 +725,7 @@ async function invia() {
       ordine: bozza.ordine, ordini: bozza.ordini, chiudi: !!bozza.chiudi, reparto: rif, data, operatore: op, urgente: !!$("#urg") && !!bozza.urgente, motivo: tipo === "ordini" ? bozza.motivo?.trim() : tipo === "scarico" ? bozza.causale : "",
       // riga unita da più ordini: una riga di movimento per ciascun ordine di partenza (l'Excel resta con una riga sola)
       righe: bozza.righe.flatMap(r => (r.parti ? ripartisci(r.qta, r.parti) : [{ qta: tipo === "acquisti" ? "" : r.qta, contata: tipo === "acquisti" && r.contata ? Number(r.giacenza) : undefined, // "Contata ora": vale come inventario
-        attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : "" }]).map(x => ({ codice: r.codice, descrizione: r.descrizione, ...x }))) }),
+        attesa: tipo === "carico" ? r.dichiarata : tipo === "scarico" ? r.richiesta : tipo === "acquisti" ? r.giacenza : "" }]).map(x => ({ codice: r.codice, descrizione: r.descrizione, ...x }))) }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = APPS[tipo].invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
   // il primo invio era arrivato, ma nel frattempo la bozza è cambiata: quelle modifiche non sono sul server
