@@ -156,7 +156,8 @@
   .seg button.on { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
   #catalogo .group { position: sticky; top: calc(52px + env(safe-area-inset-top)); z-index: 4; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.12); }
   .riga { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; margin-bottom: 6px; content-visibility: auto; contain-intrinsic-size: auto 72px; }
-  .riga > div:first-child { flex: 1; min-width: 0; }
+  .riga > div:first-of-type { flex: 1; min-width: 0; }
+  .mini { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; flex: none; }
   .riga .stepper button { width: 40px; }
   .riga .stepper input { width: 46px; }
   .riga .qta { text-align: center; }
@@ -509,7 +510,7 @@ function disegnaCatalogo() {
   $("#ambito").hidden = !mio; $("#ambito").textContent = tutto ? "Solo " + bozza.riferimento : "Tutto il catalogo";
   $("#allarga").hidden = !mio || tutto;
   $("#cat").innerHTML = voci.map(([f, c], i) => `${f && f !== voci[i - 1]?.[0] ? `<h2>${esc(f)}</h2>` : ""}
-    <div class="item riga ${q[c] ? "ok" : ""}" data-i="${i}"><div><b>${esc(prodotti[c] || c)}</b><small>${esc(c)}</small></div>
+    <div class="item riga ${q[c] ? "ok" : ""}" data-i="${i}">${typeof foto[c] === "string" ? `<img class="mini" loading="lazy" alt="" src="https://drive.google.com/thumbnail?id=${encodeURIComponent(foto[c])}&sz=w160">` : ""}<div><b>${esc(prodotti[c] || c)}</b><small>${esc(c)}</small></div>
       <div class="qta"><div class="stepper"><button aria-label="Meno" onclick="qtaCatalogo(${i}, +this.nextElementSibling.value - 1)">−</button>
       <input type="number" inputmode="decimal" aria-label="Quantità" value="${q[c] || 0}" onfocus="this.select()" onchange="qtaCatalogo(${i}, this.value)">
       <button aria-label="Più" onclick="qtaCatalogo(${i}, +this.previousElementSibling.value + 1)">+</button></div>${um[c] ? `<small>${esc(um[c])}</small>` : ""}</div></div>`).join("");
