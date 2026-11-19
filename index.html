@@ -444,6 +444,8 @@ function apri(t) {
     <button class="btn gray" style="margin-bottom:20px" onclick="ripeti()">${ico("elenco")}Ripeti ultimo ordine</button>
     <div class="seg"><button id="tabCat" onclick="vista('cat')">Catalogo</button><button id="tabSel" onclick="vista('sel')"></button></div>
     <div id="catalogo">
+      <div class="scan"><div id="reader"></div>
+        <div style="display:flex;gap:10px"><button class="btn gray" id="cam" onclick="toggleCam()"></button><button class="btn" id="scatta" onclick="scansiona()"></button></div></div>
       <div class="group"><div class="cell"><input id="cerca" placeholder="Cerca descrizione o codice" autocorrect="off" enterkeyhint="search" oninput="filtra()">
         <button class="icon" aria-label="Svuota ricerca" onclick="$('#cerca').value = ''; filtra(); $('#cerca').focus()">${ico("chiudi")}</button></div></div>
       <button class="btn gray small" id="ambito" style="margin:0 auto 12px" onclick="tutto = !tutto; disegnaCatalogo()"></button>
@@ -466,7 +468,7 @@ function apri(t) {
     <div id="lista"></div>`}
     <div class="bar">${a.catalogo ? `<button class="btn" id="invia" onclick="azione()">${a.invia}</button>`
       : `<div class="due"><button class="btn" id="scatta" onclick="scansiona()"></button><button class="btn gray" id="invia" onclick="invia()">${a.invia}</button></div>`}</div>`;
-  if (!a.catalogo) { camSpenta(); disarma(); }
+  camSpenta(); disarma(); // anche nel catalogo: i reparti possono scansionare il QR
   if (a.rif) $("#rif").oninput = e => {
     // inventario: sempre maiuscolo, perché "d1.2" e "D1.2" nei movimenti sarebbero due scaffali diversi
     bozza.riferimento = tipo === "inventario" ? e.target.value.toUpperCase() : e.target.value; salva();
@@ -609,6 +611,7 @@ function aggiungi(codice) {
   navigator.vibrate?.(80);
   avviso(prodotti[codice] ? `${codice} — ${prodotti[codice]} (${kg ? r.peso ? r.qta + " kg" : "scrivi i kg a confezione" : r.qta})` : `${codice} non è in anagrafica`);
   salva(); disegna();
+  if ($("#catalogo") && !$("#catalogo").hidden) disegnaCatalogo(); // QR letto nel catalogo: la quantità si vede subito
   if (kg && !r.peso) document.querySelectorAll("#lista .peso")[bozza.righe.indexOf(r)]?.focus();
   // la riga toccata può essere fuori schermo: la si porta al centro e la si fa lampeggiare
   const el = $("#lista").children[bozza.righe.indexOf(r)]; el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash");
