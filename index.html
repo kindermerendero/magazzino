@@ -318,6 +318,13 @@ const capo = (o, col) => `<tr class="capo"><td colspan="${col}">${o.urgente ? '<
 const tab = (id, testa, righe, vuoto) => `<div class="tab">${righe ? `<table><thead><tr>${testa.map(t => `<th${t[0] === "#" ? ' class="n"' : ""}>${t.replace("#", "")}</th>`).join("")}</tr></thead>
   <tbody id="${id}">${righe}</tbody></table>` : `<p>${vuoto}</p>`}</div>`;
 
+// spunta "No mail" della vista acquisti: l'articolo esce dalla mail sottoscorta finché non torna sopra la scorta minima
+async function silenzia(box, codice) {
+  const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ token: store.get("token"), tipo: "silenzia", mag: vistaAcquisti.mag, codice, on: box.checked,
+      data: new Date().toLocaleString("it-IT", { dateStyle: "short" }) }) }).then(r => r.json()).catch(() => null);
+  if (!j || j.error) { box.checked = !box.checked; avviso("Non salvato: " + (j?.error || "server non raggiungibile"), 4000); }
+}
 // ufficio acquisti (permesso "giacenze"): sola lettura da computer, un magazzino alla volta scelto dal menu
 async function vistaAcquisti(mag) {
   const m = vistaAcquisti.mag = mag ?? vistaAcquisti.mag ?? "";
@@ -328,7 +335,7 @@ async function vistaAcquisti(mag) {
   if (!j || j.error) return $("#main").innerHTML = `<div class="tab"><p>Dati non disponibili: ${esc(j?.error || "server non raggiungibile")}</p></div>
     <button class="link" onclick="vistaAcquisti()">Riprova</button><button class="link" onclick="esci()">Cambia codice di accesso</button>`;
   const g = j.giacenze || {}, sc = j.scorte || {}, p = vistaAcquisti.prodotti = j.prodotti || {}, aperti = j.aperti || [], num = v => v === "" || v == null ? "" : esc(v);
-  const richiesto = {}; // codice → data della prima richiesta d'acquisto aperta che lo contiene
+  const sil = j.silenziati || {}, richiesto = {}; // codice → data della prima richiesta d'acquisto aperta che lo contiene
   aperti.forEach(o => o.righe.forEach(r => richiesto[r.codice] = richiesto[r.codice] || o.data));
   const sotto = c => sc[c] && sc[c][0] !== "" && g[c] < sc[c][0];
   const codici = Object.keys(g).sort((a, b) => !!sotto(b) - !!sotto(a) || a.localeCompare(b)), sottoscorta = codici.filter(sotto);
@@ -340,7 +347,8 @@ async function vistaAcquisti(mag) {
       <div><b>${aperti.length}</b>Richieste d'acquisto aperte</div>
       <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
     <div class="due"><section><h2>Sottoscorta</h2>
-      ${tab("tSot", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max", "Richiesto"], sottoscorta.map(c => riga(c, `<td>${richiesto[c] ? "il " + esc(richiesto[c]) : ""}</td>`)).join(""),
+      ${tab("tSot", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max", "Richiesto", "No mail"], sottoscorta.map(c => riga(c, `<td>${richiesto[c] ? "il " + esc(richiesto[c]) : ""}</td>
+        <td><input type="checkbox" title="Non mandare più la mail del mattino per questo articolo finché resta sottoscorta" ${sil[c] ? "checked" : ""} onchange="silenzia(this, '${esc(c)}')"></td>`)).join(""),
         codici.length ? "Nessun articolo sotto la scorta minima fra quelli con giacenza nota" : "Giacenze non ancora note: il sottoscorta si vedrà dopo il primo inventario fatto dall'app")}</section>
     <section><h2>Richieste d'acquisto aperte</h2>
       ${tab("tAcq", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max"], aperti.map(o => capo(o, 5) + o.righe.map(r => riga(r.codice)).join("")).join(""), "Nessuna richiesta aperta")}</section></div>
