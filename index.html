@@ -214,7 +214,7 @@ const APPS = {
   ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto", invia: "Invia ordine", catalogo: true },
   acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500", invia: "Invia richiesta" },
   catalogo:   { nome: "Modifica catalogo", colore: "#5856d6", invia: "Invia al capo produzione" },
-  extra:      { nome: "Ordini acquisti", colore: "#ff2d55", invia: "Invia all'ufficio acquisti" },
+  extra:      { nome: "Ordini acquisti", colore: "#ff2d55", rif: "Reparto", invia: "Invia all'ufficio acquisti", catalogo: true },
 };
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto
 // motivo dello scarico, obbligatorio: finisce nell'Excel, nel nome del file e nella colonna Motivo dei movimenti
@@ -227,7 +227,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, grezzi = [], reparti = store.get("reparti") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [], codici = [], testi = [], tutto = false, um = store.get("um") || {};
+let permesse = store.get("app") || [], prodotti = store.get("prodotti") || {}, ubicazioni = store.get("ubicazioni") || {}, foto = store.get("foto") || {}, giacenze = store.get("giacenze") || {}, scorte = store.get("scorte") || {}, barcode = store.get("barcode") || {}, grezzi = [], reparti = store.get("reparti") || {}, repartiAcq = store.get("repartiAcq") || {}, collega = null, richiesti = {}, tipo = null, bozza = null, scanner = null, armato = false, ordini = [], codici = [], testi = [], tutto = false, um = store.get("um") || {};
 
 async function caricaProdotti(token) {
   const j = await fetch(SCRIPT_URL + "?token=" + encodeURIComponent(token)).then(r => r.json()).catch(() => null);
@@ -242,6 +242,7 @@ async function caricaProdotti(token) {
   scorte = j.scorte || {}; store.set("scorte", scorte);
   // facoltativi: arrivano solo dalla versione di Code.gs con le schede "reparti" e "um"
   reparti = j.reparti || {}; store.set("reparti", reparti);
+  repartiAcq = j.repartiAcquisti || {}; store.set("repartiAcq", repartiAcq);
   um = j.um || {}; store.set("um", um);
   foto = j.foto || {}; store.set("foto", foto); return true;
 }
@@ -269,6 +270,8 @@ function accesso() {
   $("#tok").onkeydown = e => { if (e.key === "Enter") entra(); };
 }
 
+// catalogo del reparto: quello degli ordini al magazzino (scheda "reparti") o quello degli ordini acquisti (scheda "reparti acquisti")
+const cat = () => tipo === "extra" ? repartiAcq : reparti;
 const chiaveBozza = t => "bozza_" + (store.get("magazzino") ? store.get("magazzino") + "_" : "") + t;
 const salva = () => store.set(chiaveBozza(tipo), bozza);
 function avviso(t, ms = 2000) {
@@ -437,10 +440,9 @@ function apri(t) {
   if (t === "inventario" && store.get("magazzino") === "resine" && !bozza.riferimento) bozza.riferimento = "Magazzino resine";
   testata(a.nome, true);
   if (t === "catalogo") return vistaCatalogo();
-  if (t === "extra") return vistaExtra();
   // reparto scelto da un elenco e ricordato sul telefono; senza la scheda "reparti" resta il campo libero
-  const nomiReparti = a.catalogo ? Object.keys(reparti).sort() : [];
-  if (nomiReparti.length && !reparti[bozza.riferimento]) bozza.riferimento = reparti[store.get("reparto")] ? store.get("reparto") : "";
+  const nomiReparti = a.catalogo ? Object.keys(cat()).sort() : [];
+  if (nomiReparti.length && !cat()[bozza.riferimento]) bozza.riferimento = cat()[store.get("reparto")] ? store.get("reparto") : "";
   tutto = false;
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
@@ -455,17 +457,18 @@ function apri(t) {
         nomiReparti.map(n => `<option ${bozza.riferimento === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`
       : `<label class="cell"><span>${a.rif}</span><input id="rif" ${t === "inventario" ? 'list="ubi" autocapitalize="characters" autocorrect="off"' : ""} placeholder="Obbligatorio" value="${esc(bozza.riferimento)}"></label>`}
       <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
-      ${t !== "ordini" && t !== "acquisti" ? "" : `
+      ${t !== "ordini" && t !== "acquisti" && t !== "extra" ? "" : `
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
         <label class="cell" id="motivoCell" ${bozza.urgente && t === "ordini" ? "" : "hidden"}><span>Motivo</span>
           <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
+      ${t === "extra" ? `<label class="cell"><span>Note</span><input id="note" placeholder="Facoltative" value="${esc(bozza.note)}"></label>` : ""}
       ${t !== "scarico" || store.get("magazzino") ? "" : `<label class="cell"><span>Motivo</span><select id="causale"><option value="">Scegli…</option>${
         CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
       ${t === "scarico" && bozza.ordine && permesse.includes("elenco") ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
     ${t !== "inventario" ? "" : `<datalist id="ubi">${[...new Set(Object.values(ubicazioni).map(u => u.replace(/ \?$/, "")))].sort().map(u => `<option value="${esc(u)}">`).join("")}</datalist>`}
     ${a.catalogo ? `
-    <button class="btn gray" style="margin-bottom:20px" onclick="ripeti()">${ico("elenco")}Ripeti ultimo ordine</button>
+    ${t === "ordini" ? `<button class="btn gray" style="margin-bottom:20px" onclick="ripeti()">${ico("elenco")}Ripeti ultimo ordine</button>` : ""}
     <div class="seg"><button id="tabCat" onclick="vista('cat')">Catalogo</button><button id="tabSel" onclick="vista('sel')"></button></div>
     <div id="catalogo">
       <div class="scan"><div id="reader"></div>
@@ -503,6 +506,7 @@ function apri(t) {
   if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
   if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
+  if ($("#note")) $("#note").oninput = e => { bozza.note = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
   if (a.catalogo) vista("cat"); else $("#cod").onkeydown = e => { if (e.key === "Enter") manuale(); };
   disegna();
@@ -526,7 +530,7 @@ function azione() {
 // ricerca tollerante: contano solo lettere e cifre, così "risbal" trova 3IV.RIS.BAL
 const norm = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
 function disegnaCatalogo() {
-  const mio = reparti[bozza.riferimento], q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
+  const mio = cat()[bozza.riferimento], q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
   // [fornitore, codice]: reparto nell'ordine del foglio, altrimenti tutto in ordine di descrizione
   const voci = mio && !tutto ? mio : Object.keys(prodotti).sort((a, b) => (prodotti[a] || a).localeCompare(prodotti[b] || b)).map(c => ["", c]);
   codici = voci.map(v => v[1]); testi = codici.map(c => norm(c + (prodotti[c] || "")));
@@ -816,6 +820,7 @@ async function rimuovi(i) {
 }
 
 async function invia() {
+  if (tipo === "extra") return inviaExtra();
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
   // il motivo serve solo al magazzino principale
@@ -908,7 +913,7 @@ function fotoAggiunta(i, btn) {
     btn.disabled = true; btn.textContent = "Elaboro la foto…";
     // ponytail: le foto stanno nella bozza in localStorage (~100 KB l'una); oltre i ~5 MB del browser restano solo in memoria fino all'invio
     try { bozza.righe[i].foto = await riduci(inp.files[0], 1000); salva(); } catch (e) { avviso("Foto non leggibile: " + e.message, 4000); }
-    (tipo === "extra" ? disegnaExtra : disegnaAggiunte)();
+    disegnaAggiunte();
   };
   inp.click();
 }
@@ -946,57 +951,28 @@ async function inviaCatalogo() {
   bozza = { riferimento: bozza.riferimento, righe: [] }; salva(); vistaCatalogo(); avviso("Richiesta inviata al capo produzione", 3000);
 }
 
-// Ordini acquisti (reparti): articoli con codice, direttamente all'ufficio acquisti (mail + vista acquisti)
-function vistaExtra() {
-  if (!bozza.righe.length) bozza.righe.push({ codice: "", qta: "", note: "" });
-  $("#main").innerHTML = `
-    <div class="group">
-      <label class="cell"><span>Reparto</span><select id="rif"><option value="">Scegli…</option>${
-        Object.keys(reparti).sort().map(r => `<option ${r === bozza.riferimento ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label>
-      <label class="cell"><span>Operatore</span><input id="op" placeholder="Nome" value="${esc(store.get("operatore") || "")}"></label>
-      <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
-    </div>
-    <div id="agg"></div>
-    <button class="btn gray" style="margin-bottom:20px" onclick="bozza.righe.push({ codice: '', qta: '', note: '' }); salva(); disegnaExtra()">+ Altro articolo</button>
-    <datalist id="prodList">${Object.entries(prodotti).map(([c, d]) => `<option value="${esc(c)} — ${esc(d)}">`).join("")}</datalist>
-    <div class="bar"><button class="btn" id="invia" onclick="inviaExtra()">${APPS.extra.invia}</button></div>`;
-  $("#rif").onchange = e => { bozza.riferimento = e.target.value; store.set("reparto", e.target.value); salva(); };
-  $("#op").oninput = e => store.set("operatore", e.target.value.trim());
-  $("#urg").onchange = e => { bozza.urgente = e.target.checked; salva(); };
-  disegnaExtra();
-}
-function disegnaExtra() {
-  $("#agg").innerHTML = bozza.righe.map((r, i) => `
-    <div class="item">
-      <div class="top"><div><b>Articolo ${i + 1}</b><small id="desc${i}">${esc(r.codice ? r.codice + " — " + (prodotti[r.codice] || "non in anagrafica") : "Codice non indicato")}</small></div>
-        <button class="icon del" aria-label="Rimuovi" onclick="bozza.righe.splice(${i}, 1); salva(); disegnaExtra()">${ico("trash")}</button></div>
-      <input class="testo" list="prodList" placeholder="Codice o descrizione (obbligatorio)" value="${esc(r.codice)}" onchange="voce(${i}, 'codice', this.value.split(' — ')[0].trim())">
-      <input class="testo" placeholder="Quantità (obbligatoria)" value="${esc(r.qta)}" oninput="voce(${i}, 'qta', this.value)">
-      <input class="testo" placeholder="Note: marca, misura, fornitore, link" value="${esc(r.note)}" oninput="voce(${i}, 'note', this.value)">
-      ${r.foto ? `<img class="anteprima" src="data:image/jpeg;base64,${r.foto}" alt="">` : ""}
-      <button class="btn gray small foto" onclick="fotoAggiunta(${i}, this)">${ico("camera")}${r.foto ? "Cambia foto" : "Foto"}</button>
-    </div>`).join("");
-}
+// Ordini acquisti (reparti): stesso catalogo degli ordini al magazzino, ma dalla scheda "reparti acquisti" e diretto all'ufficio acquisti
+// (scheda "ordini acquisti" + mail), senza movimenti né Excel: il magazzino non li evade
 async function inviaExtra() {
   const op = $("#op").value.trim();
   if (!bozza.riferimento) return avviso("Scegli il reparto");
+  if (!bozza.righe.length) return avviso("Nessun articolo");
   if (!op) return avviso("Scrivi il nome dell'operatore");
-  if (!bozza.righe.length) return avviso("Niente da inviare");
-  if (bozza.righe.some(r => !r.codice || !String(r.qta).trim())) return avviso("Per ogni articolo indica codice e quantità", 3000);
   const btn = $("#invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
-  const righe = bozza.righe.map(r => ({ codice: r.codice, descrizione: prodotti[r.codice] || "", qta: r.qta, note: r.note, foto: r.foto })), ora = JSON.stringify(righe);
+  const righe = bozza.righe.map(r => ({ codice: r.codice, descrizione: r.descrizione, qta: r.qta })), ora = JSON.stringify(righe);
   // id e data fissati al primo tentativo, come in inviaCatalogo(): il reinvio dopo una risposta persa non duplica
   if (!bozza.invio) bozza.invio = { doc: "extra_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), righe: ora,
                                     data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) }, salva();
   const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ token: store.get("token"), tipo: "extra", doc: bozza.invio.doc, data: bozza.invio.data, reparto: bozza.riferimento, operatore: op, urgente: !!bozza.urgente, righe }),
+    body: JSON.stringify({ token: store.get("token"), tipo: "extra", doc: bozza.invio.doc, data: bozza.invio.data, reparto: bozza.riferimento, operatore: op,
+      urgente: !!bozza.urgente, note: bozza.note || "", righe }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = APPS.extra.invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
   if (j.duplicato && bozza.invio.righe !== ora) {
     delete bozza.invio; salva(); btn.disabled = false; btn.textContent = APPS.extra.invia;
     return alert("Il primo invio era già arrivato: le modifiche fatte dopo NON sono salvate.\nTogli gli articoli già inviati, lascia solo i nuovi e invia di nuovo.");
   }
-  bozza = { riferimento: bozza.riferimento, righe: [] }; salva(); vistaExtra(); avviso("Richiesta inviata all'ufficio acquisti", 3000);
+  bozza = { riferimento: bozza.riferimento, righe: [] }; salva(); apri("extra"); avviso("Ordine inviato all'ufficio acquisti", 3000);
 }
 
 const tok = store.get("token");
