@@ -358,9 +358,8 @@ async function vistaAcquisti(mag) {
       <div><b>${extra.length}</b>Ordini acquisti dai reparti<small>${extra.filter(x => x.urgente).length} urgenti</small></div>
       <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
     ${m ? "" : `<section><h2>Ordini acquisti dai reparti</h2>
-      ${tab("tExt", ["Data", "Reparto", "Codice", "Descrizione", "Quantità", "Note", "Foto", "Fatto"], extra.map(x => `<tr class="${x.urgente ? "sotto" : ""}">
-        <td>${esc(x.data)}</td><td>${x.urgente ? '<span class="badge">URGENTE</span> ' : ""}${esc(x.reparto)}<small> ${esc(x.operatore)}</small></td><td>${esc(x.codice)}</td><td>${esc(x.descrizione)}</td><td>${esc(x.qta)}</td><td>${esc(x.note)}</td>
-        <td>${x.foto ? `<a href="${esc(x.foto)}" target="_blank" rel="noopener">foto</a>` : ""}</td>
+      ${tab("tExt", ["Codice", "Fatto"], extra.map(x => `<tr class="${x.urgente ? "sotto" : ""}">
+        <td>${x.urgente ? '<span class="badge">URGENTE</span> ' : ""}${esc(x.codice)}</td>
         <td><input type="checkbox" title="Fatto: sparisce dall'elenco al prossimo aggiornamento" onchange="segnaFatto(this, ${x.riga}, '${esc(x.doc)}')"></td></tr>`).join(""),
         "Nessun ordine acquisti aperto")}</section>`}
     <div class="due"><section><h2>Sottoscorta</h2>
@@ -461,7 +460,6 @@ function apri(t) {
         <label class="cell"><span class="red">Urgente</span><input type="checkbox" class="switch" id="urg" ${bozza.urgente ? "checked" : ""}></label>
         <label class="cell" id="motivoCell" ${bozza.urgente && t === "ordini" ? "" : "hidden"}><span>Motivo</span>
           <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
-      ${t === "extra" ? `<label class="cell"><span>Note</span><input id="note" placeholder="Facoltative" value="${esc(bozza.note)}"></label>` : ""}
       ${t !== "scarico" || store.get("magazzino") ? "" : `<label class="cell"><span>Motivo</span><select id="causale"><option value="">Scegli…</option>${
         CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
       ${t === "scarico" && bozza.ordine && permesse.includes("elenco") ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
@@ -506,7 +504,6 @@ function apri(t) {
   if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
   if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
-  if ($("#note")) $("#note").oninput = e => { bozza.note = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
   if (a.catalogo) vista("cat"); else $("#cod").onkeydown = e => { if (e.key === "Enter") manuale(); };
   disegna();
@@ -965,7 +962,7 @@ async function inviaExtra() {
                                     data: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) }, salva();
   const j = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({ token: store.get("token"), tipo: "extra", doc: bozza.invio.doc, data: bozza.invio.data, reparto: bozza.riferimento, operatore: op,
-      urgente: !!bozza.urgente, note: bozza.note || "", righe }),
+      urgente: !!bozza.urgente, righe }),
   }).then(r => r.json()).catch(() => null);
   if (!j || j.error) return btn.disabled = false, btn.textContent = APPS.extra.invia, avviso("Errore invio: " + (j?.error || "server non raggiungibile") + " — i dati restano salvati", 4000);
   if (j.duplicato && bozza.invio.righe !== ora) {
