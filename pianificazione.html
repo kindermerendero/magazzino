@@ -112,6 +112,7 @@ td input.q{width:72px;text-align:right;font-family:var(--f-num);padding:4px 6px}
       <input id="tok" type="password" autocomplete="current-password" autocapitalize="none" placeholder="Codice">
       <button class="btn pri" id="entra">Entra</button><span class="note" id="loginMsg"></span></form></div>
   <p class="note">Fonte: foglio Google «Pianificazione produzione» (cartella Drive del magazzino). Rimanenza Italia = inventario + carichi + produzione Italia − ordini. Stock Romania = inventario Romania + produzione − carichi. Come nel file SETTEMBRE 2026.xlsx.</p>
+  <p class="note">Copertura impegni: slot dei clienti (file Impegno minipiscine) per i pezzi della distinta di ogni modello, contando i pezzi condivisi tra più modelli. Parte dalla giacenza di inizio settimana in Italia e aggiunge i carichi e la produzione Italia previsti; al posto degli ordini futuri usa gli impegni.</p>
 </body>
 </html>
 </div>
@@ -142,7 +143,7 @@ let token=store.get("token");
 const post=b=>fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({token,tipo:"pianificazione",...b})})
   .then(r=>r.json()).then(j=>{if(j.error)throw new Error(j.error);return j});
 let items=new Map(),cat=CATS[0],openId=null,pending=false,delArm=false;
-try{const s=localStorage.getItem("mag.cat");if(CATS.includes(s))cat=s}catch(e){}
+try{const s=localStorage.getItem("mag.cat");if(CATS.includes(s)||s==="MODELLI")cat=s}catch(e){}
 
 function toast(t){const el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,2200)}
 const chains={};
@@ -162,8 +163,9 @@ const modeKey=()=>WEEKLY[mode()]?$("entryWeek").value:$("entryDate").value;
 
 function render(){
   const all=[...items.entries()].map(([id,d])=>({id,...d}));
-  $("tabs").innerHTML=CATS.map(c=>{const n=all.filter(i=>i.cat===c).length;
-    return `<button role="tab" aria-selected="${c===cat}" data-cat="${c}">${c[0]+c.slice(1).toLowerCase()}<span class="n">${n}</span></button>`}).join("");
+  $("tabs").innerHTML=[...CATS,"MODELLI"].map(c=>{const n=all.filter(i=>i.cat===c).length;
+    return `<button role="tab" aria-selected="${c===cat}" data-cat="${c}">${c==="MODELLI"?"Copertura impegni":c[0]+c.slice(1).toLowerCase()}<span class="n">${n}</span></button>`}).join("");
+  if(cat==="MODELLI")return renderCopertura(all);
   const q=$("q").value.trim().toLowerCase(),onlyNeg=$("onlyNeg").checked;
   let list=all.filter(i=>i.cat===cat).sort((a,b)=>(a.row??9999)-(b.row??9999)||String(a.name).localeCompare(b.name));
   const negIt=list.filter(i=>rimIt(i)<0).length,negRo=list.filter(i=>stockRo(i)<0).length;
@@ -184,6 +186,45 @@ function render(){
   $("tbody").innerHTML=html;
   $("empty").hidden=list.length>0;
   if(!list.length&&items.size)$("empty").textContent="Nessun articolo corrisponde ai filtri.";
+}
+// Copertura impegni: slot clienti (file Impegno minipiscine, modelli cat MODELLI con imp = {settimana: slot} e bom = "id:qta,...")
+// contro i pezzi in Italia. Per ogni pezzo: saldo a inizio settimana corrente (inventario + carichi e prod. Italia passati − ordini passati),
+// poi settimana per settimana + carichi e prod. Italia previsti − slot impegnati × qta di tutti i modelli che lo usano (pezzi condivisi).
+// Gli ordini futuri del file di pianificazione non contano: il consumo previsto sono gli impegni.
+const weekOf=d=>isoWeek(new Date(d+"T12:00:00"));
+const sumIf=(o,f)=>Object.entries(o||{}).reduce((a,[k,v])=>a+(f(k)?+v||0:0),0);
+const parseBom=m=>String(m.bom||"").split(",").filter(Boolean).map(x=>{const[k,q]=x.split(":");return[k.trim(),+q||0]}).filter(([,q])=>q);
+function copertura(all){
+  const byId=new Map(all.map(i=>[i.id,i])),mods=all.filter(i=>i.cat==="MODELLI").sort((a,b)=>(a.row??0)-(b.row??0));
+  const weeks=[...new Set(mods.flatMap(m=>Object.keys(m.imp||{}).filter(k=>k>=CUR&&+m.imp[k])))].sort();
+  const span=weeks.length?WEEKS.slice(WEEKS.indexOf(CUR),WEEKS.indexOf(weeks.at(-1))+1):[];
+  const need={};
+  for(const m of mods)for(const[c,q]of parseBom(m))for(const w of span){(need[c]=need[c]||{})[w]=(need[c][w]||0)+q*(+(m.imp||{})[w]||0)}
+  const pezzi={};
+  for(const c in need){const it=byId.get(c);if(!it)continue;
+    let bal=(+it.invIt||0)+(+it.adjIt||0)+sumIf(it.car,k=>weekOf(k)<CUR)+sumIf(it.pit,k=>k<CUR)-sumIf(it.ord,k=>k<CUR),first=null,min=Infinity;
+    for(const w of span){bal+=sumIf(it.car,k=>weekOf(k)===w)+(+(it.pit||{})[w]||0)-need[c][w];if(bal<0&&!first)first=w;min=Math.min(min,bal)}
+    pezzi[c]={it,first,manca:min<0?-min:0}}
+  return mods.map(m=>{const bom=parseBom(m),fut=sumIf(m.imp,k=>k>=CUR),i=WEEKS.indexOf(CUR),q4=sumIf(m.imp,k=>k>=CUR&&k<(WEEKS[i+4]||"9999"));
+    const corti=bom.map(([c])=>pezzi[c]).filter(p=>p&&p.first).sort((a,b)=>a.first<b.first?-1:1);
+    const ignoti=bom.filter(([c])=>!byId.has(c)).map(([c])=>c);
+    return{m,fut,q4,corti,ignoti,senza:!bom.length}});
+}
+function renderCopertura(all){
+  const rows=copertura(all),q=$("q").value.trim().toLowerCase(),onlyNeg=$("onlyNeg").checked;
+  const scop=rows.filter(r=>r.fut&&r.corti.length);
+  $("kpis").innerHTML=`<div class="kpi"><b>${rows.filter(r=>r.fut).length}</b><span>Modelli con impegni</span></div>
+    <div class="kpi"><b>${fmt(rows.reduce((a,r)=>a+r.fut,0))}</b><span>Slot da ${keyLabel(CUR)} in poi</span></div>
+    <div class="kpi ${scop.length?"neg":""}"><b>${scop.length}</b><span>Modelli scoperti</span></div>`;
+  let list=rows.filter(r=>!q||r.m.name.toLowerCase().includes(q));
+  if(onlyNeg)list=list.filter(r=>r.fut&&r.corti.length);
+  $("thead").innerHTML="<tr><th>Modello</th><th>Slot 4 sett.</th><th>Slot da ora</th><th>Copertura</th><th style=\"text-align:left\">Pezzi che mancano</th></tr>";
+  $("tbody").innerHTML=list.map(r=>{
+    const stato=r.senza?'<span class="pill zero">Senza distinta</span>':!r.fut?'<span class="note">Nessun impegno</span>':r.corti.length?`<span class="pill neg">Manca da ${esc(keyLabel(r.corti[0].first))}</span>`:'<span class="pill">Coperto</span>';
+    const det=r.corti.map(p=>`${esc(p.it.name)}: mancano ${fmt(p.manca)}, da ${esc(keyLabel(p.first))}`).concat(r.ignoti.map(c=>`Articolo ${esc(c)} non trovato`)).join("<br>");
+    return `<tr data-mod><td>${esc(r.m.name)}</td><td class="num">${fmt(r.q4)}</td><td class="num">${fmt(r.fut)}</td><td>${stato}</td><td style="text-align:left;white-space:normal">${det}</td></tr>`}).join("");
+  $("empty").hidden=list.length>0;
+  if(!list.length)$("empty").textContent=items.size?"Nessun modello. Gli impegni si caricano con importa_impegni.py.":"Caricamento…";
 }
 function drawer(){
   const it=items.get(openId),el=$("drawer");
@@ -259,7 +300,7 @@ async function carica(){
   if(j.error)return login(j.error);
   $("login").hidden=true;
   items=new Map(j.piano.map(({id,...d})=>[id,d]));
-  $("sync").textContent=`${items.size} articoli · aggiornato alle ${new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}`;
+  $("sync").textContent=`${[...items.values()].filter(i=>i.cat!=="MODELLI").length} articoli · aggiornato alle ${new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}`;
   if(!items.size)$("empty").textContent="Ancora nessun articolo. Usa «Nuovo articolo» per aggiungerne uno.";
   refresh();
 }
