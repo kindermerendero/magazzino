@@ -270,8 +270,6 @@ function accesso() {
   $("#tok").onkeydown = e => { if (e.key === "Enter") entra(); };
 }
 
-// catalogo del reparto: quello degli ordini al magazzino (scheda "reparti") o quello degli ordini acquisti (scheda "reparti acquisti")
-const cat = () => tipo === "extra" ? repartiAcq : reparti;
 const chiaveBozza = t => "bozza_" + (store.get("magazzino") ? store.get("magazzino") + "_" : "") + t;
 const salva = () => store.set(chiaveBozza(tipo), bozza);
 function avviso(t, ms = 2000) {
@@ -440,8 +438,8 @@ function apri(t) {
   testata(a.nome, true);
   if (t === "catalogo") return vistaCatalogo();
   // reparto scelto da un elenco e ricordato sul telefono; senza la scheda "reparti" resta il campo libero
-  const nomiReparti = a.catalogo ? Object.keys(cat()).sort() : [];
-  if (nomiReparti.length && !cat()[bozza.riferimento]) bozza.riferimento = cat()[store.get("reparto")] ? store.get("reparto") : "";
+  const nomiReparti = a.catalogo ? Object.keys(reparti).sort() : [];
+  if (nomiReparti.length && !reparti[bozza.riferimento]) bozza.riferimento = reparti[store.get("reparto")] ? store.get("reparto") : "";
   tutto = false;
   if (t === "acquisti") { caricaProdotti(store.get("token")); caricaRichiesti(); } // giacenze aggiornate agli ultimi movimenti
   $("#main").innerHTML = `
@@ -527,12 +525,13 @@ function azione() {
 // ricerca tollerante: contano solo lettere e cifre, così "risbal" trova 3IV.RIS.BAL
 const norm = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
 function disegnaCatalogo() {
-  const mio = cat()[bozza.riferimento], q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
+  // ordini acquisti: solo il catalogo acquisti del reparto (scheda "reparti acquisti"), mai l'anagrafica intera
+  const acq = tipo === "extra", mio = acq ? repartiAcq[bozza.riferimento] || [] : reparti[bozza.riferimento], q = Object.fromEntries(bozza.righe.map(r => [r.codice, r.qta]));
   // [fornitore, codice]: reparto nell'ordine del foglio, altrimenti tutto in ordine di descrizione
-  const voci = mio && !tutto ? mio : Object.keys(prodotti).sort((a, b) => (prodotti[a] || a).localeCompare(prodotti[b] || b)).map(c => ["", c]);
+  const voci = acq || mio && !tutto ? mio : Object.keys(prodotti).sort((a, b) => (prodotti[a] || a).localeCompare(prodotti[b] || b)).map(c => ["", c]);
   codici = voci.map(v => v[1]); testi = codici.map(c => norm(c + (prodotti[c] || "")));
-  $("#ambito").hidden = !mio; $("#ambito").textContent = tutto ? "Solo " + bozza.riferimento : "Tutto il catalogo";
-  $("#allarga").hidden = !mio || tutto;
+  $("#ambito").hidden = !mio || acq; $("#ambito").textContent = tutto ? "Solo " + bozza.riferimento : "Tutto il catalogo";
+  $("#allarga").hidden = !mio || tutto || acq;
   $("#cat").innerHTML = voci.map(([f, c], i) => `${f && f !== voci[i - 1]?.[0] ? `<h2>${esc(f)}</h2>` : ""}
     <div class="item riga ${q[c] ? "ok" : ""}" data-i="${i}">${typeof foto[c] === "string" ? `<img class="mini" loading="lazy" alt="" src="https://drive.google.com/thumbnail?id=${encodeURIComponent(foto[c])}&sz=w160">` : ""}<div><b>${esc(prodotti[c] || c)}</b><small>${esc(c)}</small></div>
       <div class="qta"><div class="stepper"><button aria-label="Meno" onclick="qtaCatalogo(${i}, +this.nextElementSibling.value - 1)">−</button>
