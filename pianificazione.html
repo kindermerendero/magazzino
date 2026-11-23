@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Pianificazione produzione</title>
+<link rel="apple-touch-icon" href="icon.png">
+<script src="xlsx.full.min.js" defer></script>
+<style>
+/* Layout: barra strumenti fissa, tabella-registro a tutta larghezza, scheda articolo a cassetto da destra */
+:root{
+  --bg:#f2f2f7; --panel:#fff; --fg:#000; --muted:rgba(60,60,67,.6); --line:rgba(60,60,67,.18); --head:rgba(120,120,128,.1);
+  --accent:#007aff; --accent-soft:rgba(0,122,255,.1); --neg:#d70015; --neg-soft:rgba(255,59,48,.14); --warn:#a05a00; --warn-soft:rgba(255,149,0,.16);
+  --f-display:-apple-system,system-ui,sans-serif; --f-body:-apple-system,system-ui,sans-serif; --f-num:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#000; --panel:#1c1c1e; --fg:#fff; --muted:rgba(235,235,245,.6); --line:rgba(84,84,88,.6); --head:rgba(120,120,128,.24);
+  --accent:#0a84ff; --accent-soft:rgba(10,132,255,.2); --neg:#ff6961; --neg-soft:rgba(255,69,58,.2); --warn:#ffb340; --warn-soft:rgba(255,159,10,.2); color-scheme:dark}}
+*{box-sizing:border-box} [hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;-webkit-font-smoothing:antialiased}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:calc(env(safe-area-inset-top,0px) + 20px) 40px;max-width:1400px;margin:0 auto;display:grid;gap:16px}
+.wrap{grid-template-columns:minmax(0,1fr)} .wrap>*{min-width:0}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 24px}
+h1{font-family:var(--f-display);font-size:1.6rem;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 small{display:block;font-family:var(--f-body);font-weight:400;font-size:.85rem;color:var(--muted);letter-spacing:0}
+.sync{font-size:.8rem;color:var(--muted);display:flex;gap:12px;align-items:center}
+.link{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0}
+#login{display:grid;gap:10px;max-width:340px;margin:40px auto;text-align:left}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:none;color:var(--muted);font:600 .9rem var(--f-body);padding:10px 14px;border-bottom:2px solid transparent;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--fg);border-color:var(--accent)}
+.tabs .n{font:400 .75rem var(--f-num);margin-left:6px}
+.kpis{display:flex;flex-wrap:wrap;gap:8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 12px;display:grid;gap:2px;min-width:130px}
+.kpi b{font:500 1.25rem var(--f-num)} .kpi span{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.kpi.neg b{color:var(--neg)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,select,button{font:inherit;color:var(--fg)}
+input,select{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:7px 9px}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#q{flex:1 1 220px;min-width:0}
+.btn{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:7px 12px;cursor:pointer}
+.btn:hover{border-color:var(--accent)} .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--panel)}
+.btn.danger{color:var(--neg)}
+label.chk{display:flex;gap:6px;align-items:center;font-size:.85rem;color:var(--muted)}
+.entry{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--accent-soft);border-radius:6px;padding:8px 10px;font-size:.85rem}
+.entry[hidden]{display:none}
+.tablebox{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{background:var(--head);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;position:sticky;top:0}
+th:first-child,td:first-child{text-align:left;white-space:normal;min-width:220px}
+td.num{font-family:var(--f-num)}
+tbody tr{cursor:pointer} tbody tr:hover td{background:var(--accent-soft)}
+tr.sec td{background:var(--head);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);cursor:default}
+.pill{display:inline-block;min-width:3.2em;padding:1px 7px;border-radius:999px;font-family:var(--f-num);text-align:right}
+.pill.neg{background:var(--neg-soft);color:var(--neg);font-weight:500} .pill.zero{background:var(--warn-soft);color:var(--warn)}
+td input.q{width:72px;text-align:right;font-family:var(--f-num);padding:4px 6px}
+.empty{padding:32px;text-align:center;color:var(--muted)}
+/* cassetto */
+#drawer{position:fixed;inset:0 0 0 auto;width:min(560px,100%);background:var(--panel);border-left:1px solid var(--line);box-shadow:-12px 0 32px rgb(0 0 0 / .15);z-index:20;overflow-y:auto;
+  padding:calc(env(safe-area-inset-top,0px) + 18px) max(18px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) 18px;display:grid;gap:16px;align-content:start}
+#drawer h2{font-family:var(--f-display);font-size:1.2rem;margin:0;text-wrap:balance}
+.dhead{display:flex;justify-content:space-between;gap:12px;align-items:start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.field{display:grid;gap:4px;font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.field input{text-transform:none;letter-spacing:0;font-size:.9rem;color:var(--fg)}
+.totals{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.totals div{background:var(--head);border-radius:6px;padding:10px;display:grid;gap:2px}
+.totals b{font:500 1.3rem var(--f-num)} .totals span{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.mov h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+.mov .list{display:flex;flex-wrap:wrap;gap:6px}
+.mov .cell{display:grid;gap:2px;font-size:.7rem;color:var(--muted)}
+.mov .cell input{width:78px;font-family:var(--f-num);font-size:.85rem;padding:4px 6px;text-align:right}
+.mov .add{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.note{font-size:.78rem;color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:6px;z-index:30;font-size:.85rem}
+@media (prefers-reduced-motion:no-preference){#drawer{animation:in .18s ease-out}@keyframes in{from{transform:translateX(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pianificazione produzione<small>Ordini, carichi e produzione per minipiscine, vasche, pannelli e box</small></h1>
+    <span class="sync"><span id="sync">Connessione…</span><button class="link" id="esci">Esci</button></span>
+  </header>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+  <div class="kpis" id="kpis"></div>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Cerca articolo…" aria-label="Cerca articolo">
+    <label class="chk"><input type="checkbox" id="onlyNeg"> Solo sottoscorta</label>
+    <select id="mode" aria-label="Inserimento rapido">
+      <option value="">Inserimento rapido…</option>
+      <option value="ord">Ordini di una settimana</option>
+      <option value="car">Carico Romania → Italia</option>
+      <option value="prod">Produzione Romania (giorno)</option>
+      <option value="pit">Produzione Italia (settimana)</option>
+    </select>
+    <button class="btn" id="newItem">Nuovo articolo</button>
+    <button class="btn pri" id="export">Esporta Excel</button>
+  </div>
+  <div class="entry" id="entry" hidden>
+    <span id="entryLabel"></span>
+    <select id="entryWeek" aria-label="Settimana"></select>
+    <input id="entryDate" type="date" aria-label="Data">
+    <span class="note">Scrivi la quantità nella colonna evidenziata: si salva quando esci dalla cella.</span>
+  </div>
+  <div class="tablebox"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+    <div class="empty" id="empty">Caricamento articoli…</div>
+    <form id="login" hidden><b>Codice di accesso</b>
+      <input id="tok" type="password" autocomplete="current-password" autocapitalize="none" placeholder="Codice">
+      <button class="btn pri" id="entra">Entra</button><span class="note" id="loginMsg"></span></form></div>
+  <p class="note">Fonte: foglio Google «Pianificazione produzione» (cartella Drive del magazzino). Rimanenza Italia = inventario + carichi + produzione Italia − ordini. Stock Romania = inventario Romania + produzione − carichi. Come nel file SETTEMBRE 2026.xlsx.</p>
+</body>
+</html>
+</div>
+<aside id="drawer" hidden></aside>
+<div id="toast" hidden></div>
+<script>
+const CATS=["MINIPISCINE","VASCHE","PANNELLI","BOX"];
+const TYPES={ord:"Ordini",car:"Carichi Romania → Italia",prod:"Produzione Romania",pit:"Produzione Italia"};
+const WEEKLY={ord:1,pit:1};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const sum=o=>Object.values(o||{}).reduce((a,b)=>a+(+b||0),0);
+const fmt=n=>{n=Math.round(n*100)/100;return n.toLocaleString("it-IT")};
+function isoWeek(d){d=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=d.getUTCDay()||7;d.setUTCDate(d.getUTCDate()+4-day);
+  const y=d.getUTCFullYear(),w=Math.ceil(((d-Date.UTC(y,0,1))/864e5+1)/7);return `${y}-W${String(w).padStart(2,"0")}`}
+const CUR=isoWeek(new Date());
+const WEEKS=(()=>{const out=[],d=new Date(2026,7,31);for(let i=0;i<60;i++){out.push(isoWeek(d));d.setDate(d.getDate()+7)}return out})();
+const keyLabel=k=>/W/.test(k)?`W${k.slice(6)} ’${k.slice(2,4)}`:`${k.slice(8)}/${k.slice(5,7)}/${k.slice(2,4)}`;
+const next4=it=>{const i=WEEKS.indexOf(CUR),end=WEEKS[i+4]||"9999";return Object.entries(it.ord||{}).filter(([k])=>k>=CUR&&k<end).reduce((a,[,v])=>a+(+v||0),0)};
+const rimIt=it=>(+it.invIt||0)+sum(it.car)-sum(it.ord)+sum(it.pit)+(+it.adjIt||0);
+const stockRo=it=>(+it.invRo||0)+sum(it.prod)-sum(it.car)+(+it.adjRo||0);
+
+// stessa distribuzione Apps Script di index.html; codice di accesso in localStorage "token", come nella home
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbyTPOkCB28INWWQgK7CcP8pGIuwxJg_jvk-OxIVAbgadqml9J6At4d8NooJVZrUd99VPA/exec";
+const store={get:k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let token=store.get("token");
+// POST text/plain: niente preflight CORS (Apps Script non lo gestisce); errori come {error} con HTTP 200
+const post=b=>fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({token,tipo:"pianificazione",...b})})
+  .then(r=>r.json()).then(j=>{if(j.error)throw new Error(j.error);return j});
+let items=new Map(),cat=CATS[0],openId=null,pending=false,delArm=false;
+try{const s=localStorage.getItem("mag.cat");if(CATS.includes(s))cat=s}catch(e){}
+
+function toast(t){const el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,2200)}
+const chains={};
+function save(id,patch){
+  const it=items.get(id);if(it)deepMerge(it,patch);
+  chains[id]=(chains[id]||Promise.resolve()).then(()=>post({id,dati:patch}))
+    .then(()=>$("sync").textContent="Salvato alle "+new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}))
+    .catch(e=>{toast("Salvataggio non riuscito: "+e.message+". Ricarico i dati.");carica()});
+}
+function deepMerge(a,b){for(const[k,v]of Object.entries(b)){if(v&&typeof v==="object"){a[k]=a[k]||{};deepMerge(a[k],v)}else a[k]=v}}
+const busy=()=>{const a=document.activeElement;return a&&a.tagName==="INPUT"&&a.type!=="search"&&a.type!=="checkbox"&&(a.closest("#tbody")||a.closest("#drawer"))};
+function refresh(){if(busy()){pending=true;return}pending=false;render();if(openId)drawer()}
+document.addEventListener("focusout",()=>setTimeout(()=>{if(pending)refresh()},0));
+
+const mode=()=>$("mode").value;
+const modeKey=()=>WEEKLY[mode()]?$("entryWeek").value:$("entryDate").value;
+
+function render(){
+  const all=[...items.entries()].map(([id,d])=>({id,...d}));
+  $("tabs").innerHTML=CATS.map(c=>{const n=all.filter(i=>i.cat===c).length;
+    return `<button role="tab" aria-selected="${c===cat}" data-cat="${c}">${c[0]+c.slice(1).toLowerCase()}<span class="n">${n}</span></button>`}).join("");
+  const q=$("q").value.trim().toLowerCase(),onlyNeg=$("onlyNeg").checked;
+  let list=all.filter(i=>i.cat===cat).sort((a,b)=>(a.row??9999)-(b.row??9999)||String(a.name).localeCompare(b.name));
+  const negIt=list.filter(i=>rimIt(i)<0).length,negRo=list.filter(i=>stockRo(i)<0).length;
+  $("kpis").innerHTML=`<div class="kpi"><b>${list.length}</b><span>Articoli</span></div>
+    <div class="kpi ${negIt?"neg":""}"><b>${negIt}</b><span>Sottoscorta Italia</span></div>
+    <div class="kpi ${negRo?"neg":""}"><b>${negRo}</b><span>Negativi Romania</span></div>
+    <div class="kpi"><b>${fmt(list.reduce((a,i)=>a+next4(i),0))}</b><span>Ordini prossime 4 sett.</span></div>`;
+  if(q)list=list.filter(i=>String(i.name).toLowerCase().includes(q));
+  if(onlyNeg)list=list.filter(i=>rimIt(i)<0||stockRo(i)<0);
+  const m=mode(),k=modeKey();
+  $("thead").innerHTML=`<tr><th>Articolo</th><th>Inv. Italia</th><th>Stock Romania</th><th>Ordini 4 sett.</th><th>Rimanenza Italia</th>${m&&k?`<th style="color:var(--accent)">${esc(TYPES[m])} ${esc(keyLabel(k))}</th>`:""}</tr>`;
+  let sec=null,html="";
+  for(const i of list){
+    if((i.sec||"")!==sec){sec=i.sec||"";if(sec)html+=`<tr class="sec"><td colspan="${m&&k?6:5}">${esc(sec)}</td></tr>`}
+    const r=rimIt(i),s=stockRo(i),pill=v=>`<span class="pill ${v<0?"neg":v===0?"zero":""}">${fmt(v)}</span>`;
+    html+=`<tr data-id="${esc(i.id)}"><td>${esc(i.name)}</td><td class="num">${fmt(+i.invIt||0)}</td><td class="num">${pill(s)}</td><td class="num">${fmt(next4(i))}</td><td class="num">${pill(r)}</td>${m&&k?`<td><input class="q" inputmode="decimal" aria-label="Quantità ${esc(i.name)}" data-id="${esc(i.id)}" value="${esc((i[m]||{})[k]||"")}"></td>`:""}</tr>`;
+  }
+  $("tbody").innerHTML=html;
+  $("empty").hidden=list.length>0;
+  if(!list.length&&items.size)$("empty").textContent="Nessun articolo corrisponde ai filtri.";
+}
+function drawer(){
+  const it=items.get(openId),el=$("drawer");
+  if(!it){el.hidden=true;openId=null;return}
+  const f=(k,l,t="text")=>`<label class="field">${l}<input data-f="${k}" type="${t}" ${t==="number"?'step="any"':""} value="${esc(it[k]??"")}"></label>`;
+  const weekOpts=sel=>WEEKS.map(w=>`<option value="${w}" ${w===sel?"selected":""}>${keyLabel(w)}</option>`).join("");
+  const movs=Object.keys(TYPES).map(t=>{
+    const e=Object.entries(it[t]||{}).filter(([,v])=>+v).sort(([a],[b])=>a<b?-1:1);
+    return `<section class="mov"><h3>${TYPES[t]} · totale ${fmt(sum(it[t]))}</h3>
+      <div class="list">${e.map(([k,v])=>`<label class="cell">${keyLabel(k)}<input data-t="${t}" data-k="${k}" inputmode="decimal" value="${esc(v)}"></label>`).join("")||'<span class="note">Nessun movimento</span>'}</div>
+      <div class="add">${WEEKLY[t]?`<select data-addk="${t}" aria-label="Settimana">${weekOpts(CUR)}</select>`:`<input data-addk="${t}" type="date" aria-label="Data" value="${new Date().toISOString().slice(0,10)}">`}
+        <input data-addq="${t}" inputmode="decimal" placeholder="Qtà" aria-label="Quantità" style="width:80px">
+        <button class="btn" data-add="${t}">Aggiungi</button></div></section>`}).join("");
+  const adj=(+it.adjIt||0)||(+it.adjRo||0);
+  el.innerHTML=`<div class="dhead"><h2>${esc(it.name)}</h2><button class="btn" data-close aria-label="Chiudi">Chiudi</button></div>
+    <div class="totals"><div><span>Rimanenza Italia</span><b style="color:${rimIt(it)<0?"var(--neg)":"inherit"}">${fmt(rimIt(it))}</b></div>
+      <div><span>Stock Romania</span><b style="color:${stockRo(it)<0?"var(--neg)":"inherit"}">${fmt(stockRo(it))}</b></div></div>
+    <div class="grid2">${f("name","Descrizione")}${f("sec","Sezione")}${f("peso","Peso kg","number")}${f("invIt","Inventario Italia","number")}${f("invRo","Inventario Romania","number")}</div>
+    ${adj?`<p class="note">Include una rettifica importata dall'Excel (Italia ${fmt(+it.adjIt||0)}, Romania ${fmt(+it.adjRo||0)}): nel file la formula di questa riga usava anche altre righe.</p>`:""}
+    ${movs}
+    <div><button class="btn danger" data-del>${delArm?"Conferma: elimina definitivamente":"Elimina articolo"}</button></div>`;
+  el.hidden=false;
+}
+const numOrNull=v=>{v=String(v).trim().replace(",",".");if(v==="")return 0;const n=Number(v);return Number.isFinite(n)?n:null};
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-cat],[data-close],[data-add],[data-del],tbody tr[data-id]");if(!t)return;
+  if(t.dataset.cat){cat=t.dataset.cat;try{localStorage.setItem("mag.cat",cat)}catch(e){}render()}
+  else if(t.hasAttribute("data-close")){openId=null;$("drawer").hidden=true}
+  else if(t.dataset.add){const ty=t.dataset.add,k=$("drawer").querySelector(`[data-addk="${ty}"]`).value,q=numOrNull($("drawer").querySelector(`[data-addq="${ty}"]`).value);
+    if(!k||q===null||q===0){toast("Indica data o settimana e una quantità");return}
+    const prev=+(items.get(openId)[ty]||{})[k]||0;save(openId,{[ty]:{[k]:prev+q}});toast(prev?`Sommato a ${keyLabel(k)}: ora ${fmt(prev+q)}`:"Aggiunto");refresh()}
+  else if(t.hasAttribute("data-del")){if(!delArm){delArm=true;drawer();return}
+    const id=openId;delArm=false;openId=null;$("drawer").hidden=true;items.delete(id);render();
+    post({id,elimina:true}).then(()=>toast("Articolo eliminato")).catch(e=>{toast("Eliminazione non riuscita: "+e.message);carica()})}
+  else if(t.dataset.id&&!e.target.closest("input")){openId=t.dataset.id;delArm=false;drawer()}
+});
+document.addEventListener("change",e=>{
+  const t=e.target;
+  if(t.matches("input.q")){const q=numOrNull(t.value);if(q===null){toast("Quantità non valida");return}save(t.dataset.id,{[mode()]:{[modeKey()]:q}});pending=true}
+  else if(t.dataset.f){const nf=["peso","invIt","invRo"].includes(t.dataset.f);const v=nf?numOrNull(t.value):t.value.trim();if(v===null)return;save(openId,{[t.dataset.f]:v});pending=true}
+  else if(t.dataset.t){const q=numOrNull(t.value);if(q===null)return;save(openId,{[t.dataset.t]:{[t.dataset.k]:q}});pending=true}
+});
+$("q").addEventListener("input",render);$("onlyNeg").addEventListener("change",render);
+$("entryWeek").innerHTML=WEEKS.map(w=>`<option value="${w}" ${w===CUR?"selected":""}>${keyLabel(w)}</option>`).join("");
+$("entryDate").value=new Date().toISOString().slice(0,10);
+function onMode(){const m=mode();$("entry").hidden=!m;$("entryWeek").hidden=!WEEKLY[m];$("entryDate").hidden=!!WEEKLY[m]||!m;$("entryLabel").textContent=m?TYPES[m]+":":"";render()}
+$("mode").addEventListener("change",onMode);$("entryWeek").addEventListener("change",render);$("entryDate").addEventListener("change",render);
+$("newItem").addEventListener("click",()=>{
+  const id=cat.slice(0,3).toLowerCase()+"n"+Date.now().toString(36),d={cat,name:"Nuovo articolo",sec:"",peso:0,invIt:0,invRo:0,row:9999};
+  items.set(id,d);save(id,d);openId=id;render();drawer();
+  $("drawer").querySelector('[data-f="name"]').select();
+});
+$("export").addEventListener("click",()=>{
+  const wb=XLSX.utils.book_new();
+  for(const c of CATS){
+    const list=[...items.entries()].map(([id,d])=>({id,...d})).filter(i=>i.cat===c).sort((a,b)=>(a.row??9999)-(b.row??9999));
+    const keys=t=>[...new Set(list.flatMap(i=>Object.keys(i[t]||{})))].sort();
+    const cols=Object.keys(TYPES).flatMap(t=>keys(t).map(k=>[t,k]));
+    const head=["DESCRIZIONE","SEZIONE","PESO","INVENTARIO ITALIA","INVENTARIO ROMANIA","RIMANENZA ITALIA","STOCK ROMANIA",...cols.map(([t,k])=>({ord:"ORDINI ",car:"CARICO ",prod:"PROD. RO ",pit:"PROD. IT "})[t]+keyLabel(k))];
+    const rows=list.map(i=>[i.name,i.sec||"",+i.peso||0,+i.invIt||0,+i.invRo||0,rimIt(i),stockRo(i),...cols.map(([t,k])=>+(i[t]||{})[k]||null)]);
+    const ws=XLSX.utils.aoa_to_sheet([head,...rows]);ws["!cols"]=[{wch:44}];ws["!freeze"]={xSplit:1,ySplit:1};
+    XLSX.utils.book_append_sheet(wb,ws,c);
+  }
+  const name=`Magazzino ${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb,name);
+});
+
+async function carica(){
+  if(!token)return login("");
+  const j=await fetch(SCRIPT_URL+"?piano=1&token="+encodeURIComponent(token)).then(r=>r.json()).catch(()=>null);
+  if(!j){$("sync").textContent="Server non raggiungibile: dati non aggiornati";if(!items.size)$("empty").textContent="Impossibile caricare gli articoli. Controlla la connessione e ricarica.";return}
+  if(j.error)return login(j.error);
+  $("login").hidden=true;
+  items=new Map(j.piano.map(({id,...d})=>[id,d]));
+  $("sync").textContent=`${items.size} articoli · aggiornato alle ${new Date().toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}`;
+  if(!items.size)$("empty").textContent="Ancora nessun articolo. Usa «Nuovo articolo» per aggiungerne uno.";
+  refresh();
+}
+function login(msg){
+  items=new Map();render();$("empty").hidden=true;$("login").hidden=false;$("loginMsg").textContent=msg;$("sync").textContent="";$("tok").focus();
+}
+$("login").addEventListener("submit",e=>{e.preventDefault();const t=$("tok").value.trim();if(!t)return;token=t;store.set("token",t);$("loginMsg").textContent="Verifica…";carica()});
+$("esci").addEventListener("click",()=>{try{localStorage.removeItem("token");localStorage.removeItem("app")}catch(e){}location.href="index.html"});
+// ponytail: niente aggiornamento in tempo reale, si ricarica quando torni sulla scheda e ogni 2 minuti
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&token)carica()});
+setInterval(()=>{if(!document.hidden&&token&&!busy())carica()},120000);
+render();onMode();carica();
+</script>

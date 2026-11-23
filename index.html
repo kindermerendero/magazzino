@@ -283,6 +283,7 @@ async function fermaScanner() {
 async function home() {
   await fermaScanner(); tipo = null;
   if (permesse.includes("admin")) return admin();
+  if (permesse.includes("pianificazione")) return location.replace("pianificazione.html"); // pianificazione produzione: pagina a parte
   if (permesse.includes("giacenze")) return vistaAcquisti();
   testata("Magazzino", false);
   // il server rifiuta comunque le funzioni non consentite: qui si nascondono solo i riquadri
