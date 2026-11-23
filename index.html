@@ -214,7 +214,7 @@ const APPS = {
   ordini:     { nome: "Ordini reparto", colore: "#af52de", rif: "Reparto", invia: "Invia ordine", catalogo: true },
   acquisti:   { nome: "Richiesta acquisti", colore: "#ff9500", invia: "Invia richiesta" },
   catalogo:   { nome: "Modifica catalogo", colore: "#5856d6", invia: "Invia al capo produzione" },
-  extra:      { nome: "Fuori catalogo", colore: "#ff2d55", invia: "Invia all'ufficio acquisti" },
+  extra:      { nome: "Ordini agli acquisti", colore: "#ff2d55", invia: "Invia all'ufficio acquisti" },
 };
 // richieste aperte che una funzione può richiamare: lo scarico evade gli ordini reparto
 // motivo dello scarico, obbligatorio: finisce nell'Excel, nel nome del file e nella colonna Motivo dei movimenti
@@ -352,14 +352,14 @@ async function vistaAcquisti(mag) {
     <h2>Magazzino <select onchange="vistaAcquisti(this.value)">${(j.magazzini || [""]).map(x => `<option value="${esc(x)}" ${x === m ? "selected" : ""}>${nome(x)}</option>`).join("")}</select></h2>
     <div class="kpi"><div><b>${codici.length ? sottoscorta.length : "—"}</b>Articoli sottoscorta<small>${codici.length ? `${sottoscorta.filter(c => richiesto[c]).length} già richiesti` : "giacenze ignote fino al primo inventario"}</small></div>
       <div><b>${aperti.length}</b>Richieste d'acquisto aperte</div>
-      <div><b>${extra.length}</b>Fuori catalogo dai reparti<small>${extra.filter(x => x.urgente).length} urgenti</small></div>
+      <div><b>${extra.length}</b>Ordini agli acquisti dai reparti<small>${extra.filter(x => x.urgente).length} urgenti</small></div>
       <div><b>${codici.length}</b>Codici con giacenza nota<small>su ${Object.keys(p).length} in anagrafica</small></div></div>
-    ${m ? "" : `<section><h2>Fuori catalogo dai reparti</h2>
+    ${m ? "" : `<section><h2>Ordini agli acquisti dai reparti</h2>
       ${tab("tExt", ["Data", "Reparto", "Codice", "Descrizione", "Quantità", "Note", "Foto", "Fatto"], extra.map(x => `<tr class="${x.urgente ? "sotto" : ""}">
         <td>${esc(x.data)}</td><td>${x.urgente ? '<span class="badge">URGENTE</span> ' : ""}${esc(x.reparto)}<small> ${esc(x.operatore)}</small></td><td>${esc(x.codice)}</td><td>${esc(x.descrizione)}</td><td>${esc(x.qta)}</td><td>${esc(x.note)}</td>
         <td>${x.foto ? `<a href="${esc(x.foto)}" target="_blank" rel="noopener">foto</a>` : ""}</td>
         <td><input type="checkbox" title="Fatto: sparisce dall'elenco al prossimo aggiornamento" onchange="segnaFatto(this, ${x.riga}, '${esc(x.doc)}')"></td></tr>`).join(""),
-        "Nessuna richiesta fuori catalogo aperta")}</section>`}
+        "Nessun ordine agli acquisti aperto")}</section>`}
     <div class="due"><section><h2>Sottoscorta</h2>
       ${tab("tSot", ["Codice", "Descrizione", "#Giacenza", "#Scorta min", "#Scorta max", "Richiesto", "No mail"], sottoscorta.map(c => riga(c, `<td>${richiesto[c] ? "il " + esc(richiesto[c]) : ""}</td>
         <td><input type="checkbox" title="Non mandare più la mail del mattino per questo articolo finché resta sottoscorta" ${sil[c] ? "checked" : ""} onchange="silenzia(this, '${esc(c)}')"></td>`)).join(""),
@@ -946,7 +946,7 @@ async function inviaCatalogo() {
   bozza = { riferimento: bozza.riferimento, righe: [] }; salva(); vistaCatalogo(); avviso("Richiesta inviata al capo produzione", 3000);
 }
 
-// Fuori catalogo (reparti): articoli che non sono nel catalogo, direttamente all'ufficio acquisti (mail + vista acquisti)
+// Ordini agli acquisti (reparti): articoli con codice, direttamente all'ufficio acquisti (mail + vista acquisti)
 function vistaExtra() {
   if (!bozza.righe.length) bozza.righe.push({ codice: "", qta: "", note: "" });
   $("#main").innerHTML = `
