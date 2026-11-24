@@ -601,14 +601,14 @@ async function elencoEvasi() {
   const j = await fetch(SCRIPT_URL + "?evasi=1&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
   if (!j || j.error || !j.evasi) return disegna(), avviso("Elenco non disponibile: " + (j?.error || (j ? "funzione non ancora attiva sul server" : "server non raggiungibile")), 3000);
   if (!j.evasi.length) return disegna(), avviso("Nessun ordine evaso");
-  $("#conta").textContent = `Ordini evasi (ultimi ${j.evasi.length})`;
+  $("#conta").textContent = `Ordini evasi e parziali (ultimi ${j.evasi.length})`;
   $("#lista").innerHTML = j.evasi.map(o => `
     <details class="evaso"><summary><div>
       <b>${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto)}</b>
       <small>Ordinato ${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}</small>
-      <small><b>${esc(o.esito)}</b>${o.chiuso ? ` il ${esc(o.chiuso.data)} da ${esc(o.chiuso.operatore)}` : ""}</small></div></summary>
+      <small><b>${esc(o.esito)}</b>${o.chiuso ? ` ${o.esito === "Parzialmente evaso" ? "ultimo prelievo" : "il"} ${esc(o.chiuso.data)} da ${esc(o.chiuso.operatore)}` : ""}</small></div></summary>
       ${o.righe.map(r => `<div class="meta">${esc(r.codice)} ${esc(prodotti[r.codice] || r.descrizione || "")}<br>
-        Ordinati ${r.ordinata} · prelevati <b>${r.prelevata}</b>${r.annullata ? " · ANNULLATA" : ""}</div>`).join("")}
+        Ordinati ${r.ordinata} · prelevati <b>${r.prelevata}</b>${r.annullata ? " · ANNULLATA" : o.esito === "Parzialmente evaso" && r.prelevata < r.ordinata ? ` · da prelevare ${r.ordinata - r.prelevata}` : ""}</div>`).join("")}
     </details>`).join("") + `<button class="btn gray" onclick="disegna()">Chiudi elenco</button>`;
 }
 // ordine reparto sbagliato: chiuso con motivo ANNULLATO, resta nello storico. Ordini uniti: si chiede per ognuno, così si annulla solo quello sbagliato
