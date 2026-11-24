@@ -732,7 +732,7 @@ function disegna() {
         <button aria-label="Più" onclick="campo(${i},'conf',${r.conf || 0}+1)">+</button></div></div>
         <div class="field">Kg a confezione<input class="peso" type="number" inputmode="decimal" placeholder="es. 25" value="${esc(r.peso)}" onchange="campo(${i},'peso',this.value)"></div>
         <button class="btn gray small" onclick="altroFormato(${i})">+ Altro formato</button>`}
-      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? "Arrivati" : r.richiesta !== undefined ? "Prelevati" : store.get("magazzino") === "resine" ? "Kg" : "Quantità" + (um[r.codice] ? ` (${esc(um[r.codice])})` : "")}
+      ${tipo === "acquisti" ? "" : `<div class="field">${tipo === "carico" ? (store.get("magazzino") === "resine" ? "Kg arrivati" : "Arrivati") : r.richiesta !== undefined ? "Prelevati" : store.get("magazzino") === "resine" ? "Kg" : "Quantità" + (um[r.codice] ? ` (${esc(um[r.codice])})` : "")}
         ${pari(r, i)}<div class="stepper"><button aria-label="Meno" onclick="campo(${i},'qta',${r.qta}-1)">−</button>
         <input type="number" inputmode="decimal" value="${r.qta}" onchange="campo(${i},'qta',this.value)">
         <button aria-label="Più" onclick="campo(${i},'qta',${r.qta}+1)">+</button></div></div>`}
@@ -821,7 +821,7 @@ async function invia() {
   if (APPS[tipo].rif && !bozza.riferimento.trim()) return avviso("Inserisci " + APPS[tipo].rif.toLowerCase());
   if (!bozza.righe.length) return avviso("Nessun articolo");
   // il motivo serve solo al magazzino principale
-  const senzaKg = tipo === "scarico" && store.get("magazzino") === "resine" && bozza.righe.find(r => !(r.qta > 0));
+  const senzaKg = (tipo === "scarico" || tipo === "carico") && store.get("magazzino") === "resine" && bozza.righe.find(r => !(r.qta > 0));
   if (senzaKg) return avviso(`Scrivi i kg di ${senzaKg.descrizione || senzaKg.codice}`);
   if (tipo === "scarico" && !store.get("magazzino") && !CAUSALI.includes(bozza.causale)) return avviso("Scegli il motivo dello scarico");
   if (tipo === "acquisti" && bozza.righe.some(r => r.giacenza === "" || r.giacenza === undefined)) return avviso("Manca la giacenza su qualche riga");
