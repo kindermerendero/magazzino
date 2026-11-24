@@ -8,7 +8,7 @@ const TRACCIATI = {
 };
 
 function rigaExcel(tipo, data, rif, operatore, r) {
-  // carico e acquisti senza riferimento; nello scarico è il reparto dell'ordine evaso (vuoto se scarico libero)
+  // carico e acquisti senza riferimento; nello scarico è il reparto dell'ordine evaso o quello scelto nello scarico libero (facoltativo)
   const qta = Number(r.qta), base = [data, ...(tipo === "carico" || tipo === "acquisti" ? [] : [rif]), operatore, r.codice, r.descrizione || ""];
   if (tipo === "scarico") {
     if (r.richiesta === undefined || r.richiesta === "") return [...base, "", qta, "", "", r.causale || ""];

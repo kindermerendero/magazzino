@@ -120,6 +120,9 @@
             border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
   .ordine > div { flex: 1; min-width: 0; }
   .rigaOrdine { display: flex; align-items: center; gap: 4px; }
+  .evaso { background: var(--card); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .evaso summary { list-style: none; cursor: pointer; } .evaso summary small { display: block; }
+  .evaso .meta { border-top: 1px solid var(--sep, #e5e5ea); padding-top: 6px; margin-top: 6px; }
   .rigaOrdine .del { margin-bottom: 10px; }
   .item .badge { background: #ff9500 !important; }
   .ordine .badge, .item .badge { color: #fff; background: var(--red); font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; margin-right: 6px; }
@@ -448,7 +451,8 @@ function apri(t) {
       ? `<div class="banner"><i style="background:${APPS[DA[t].icona].colore}">${ico(DA[t].icona)}</i>
          <div><b>${esc(bozza.nomeOrdine || bozza.riferimento)}</b><div class="meta" style="margin:0">${esc(bozza.dataOrdine)}</div></div>
          <button class="icon" aria-label="Sgancia" onclick="sganciaOrdine()">${ico("chiudi")}</button></div>`
-      : `<button class="btn gray" style="margin-bottom:20px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>`}
+      : `<button class="btn gray" style="margin-bottom:${t === "scarico" ? 10 : 20}px" onclick="elencoOrdini()">${ico("elenco")}Richiama ${DA[t].nome}</button>
+         ${t === "scarico" ? `<button class="btn gray" style="margin-bottom:20px" onclick="elencoEvasi()">${ico("elenco")}Ordini evasi</button>` : ""}`}
     ${t === "acquisti" ? `<button class="btn gray" style="margin-bottom:20px" onclick="sottoscorta()">${ico("elenco")}Aggiungi articoli sottoscorta</button>` : ""}
     <div class="group">
       ${!a.rif ? "" : nomiReparti.length ? `<label class="cell"><span>${a.rif}</span><select id="rif"><option value="">Scegli…</option>${
@@ -461,6 +465,8 @@ function apri(t) {
           <input id="motivo" placeholder="Obbligatorio" value="${esc(bozza.motivo)}"></label>`}
       ${t !== "scarico" || store.get("magazzino") ? "" : `<label class="cell"><span>Motivo</span><select id="causale"><option value="">Scegli…</option>${
         CAUSALI.map(c => `<option ${bozza.causale === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>`}
+      ${t !== "scarico" || store.get("magazzino") || bozza.ordine || !Object.keys(reparti).length ? "" : `<label class="cell"><span>Reparto</span><select id="repScarico"><option value="">Nessuno</option>${
+        Object.keys(reparti).sort().map(n => `<option ${bozza.riferimento === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`}
       ${t === "scarico" && bozza.ordine && permesse.includes("elenco") ? `<label class="cell"><span>Chiudi anche se incompleto</span><input type="checkbox" class="switch" id="chiudi" ${bozza.chiudi ? "checked" : ""}></label>` : ""}
     </div>
     ${t !== "inventario" ? "" : `<datalist id="ubi">${[...new Set(Object.values(ubicazioni).map(u => u.replace(/ \?$/, "")))].sort().map(u => `<option value="${esc(u)}">`).join("")}</datalist>`}
@@ -501,6 +507,7 @@ function apri(t) {
   };
   if ($("#urg")) $("#urg").onchange = e => { bozza.urgente = e.target.checked; $("#motivoCell").hidden = !bozza.urgente || tipo !== "ordini"; salva(); };
   if ($("#causale")) $("#causale").onchange = e => { bozza.causale = e.target.value; salva(); };
+  if ($("#repScarico")) $("#repScarico").onchange = e => { bozza.riferimento = e.target.value; salva(); }; // scarico libero: reparto facoltativo
   if ($("#chiudi")) $("#chiudi").onchange = e => { bozza.chiudi = e.target.checked; salva(); };
   if ($("#motivo")) $("#motivo").oninput = e => { bozza.motivo = e.target.value; salva(); };
   $("#op").oninput = e => store.set("operatore", e.target.value);
@@ -587,6 +594,22 @@ async function elencoOrdini() {
       ${o.urgente && (o.motivi?.join(" · ") || o.motivo) ? `<small>${esc(o.motivi?.join(" · ") || o.motivo)}</small>` : ""}
       <small>${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}${o.ids?.length > 1 ? ` · <b>${o.ids.length} ordini uniti</b>` : ""}</small></div>${ico("avanti")}</button>
     ${tipo === "scarico" && permesse.includes("annulla") ? `<button class="icon del" aria-label="Annulla ordine" onclick="annulla(${i})">${ico("trash")}</button>` : ""}</div>`).join("");
+}
+// ordini reparto già chiusi (evasi, incompleti, annullati), sola lettura: un tocco apre le righe
+async function elencoEvasi() {
+  $("#conta").textContent = "Caricamento…"; $("#lista").innerHTML = "";
+  const j = await fetch(SCRIPT_URL + "?evasi=1&token=" + encodeURIComponent(store.get("token"))).then(r => r.json()).catch(() => null);
+  if (!j || j.error || !j.evasi) return disegna(), avviso("Elenco non disponibile: " + (j?.error || (j ? "funzione non ancora attiva sul server" : "server non raggiungibile")), 3000);
+  if (!j.evasi.length) return disegna(), avviso("Nessun ordine evaso");
+  $("#conta").textContent = `Ordini evasi (ultimi ${j.evasi.length})`;
+  $("#lista").innerHTML = j.evasi.map(o => `
+    <details class="evaso"><summary><div>
+      <b>${o.urgente ? '<span class="badge">URGENTE</span>' : ""}${esc(o.reparto)}</b>
+      <small>Ordinato ${esc(o.data)} · ${o.righe.length} articoli · ${esc(o.operatore)}</small>
+      <small><b>${esc(o.esito)}</b>${o.chiuso ? ` il ${esc(o.chiuso.data)} da ${esc(o.chiuso.operatore)}` : ""}</small></div></summary>
+      ${o.righe.map(r => `<div class="meta">${esc(r.codice)} ${esc(prodotti[r.codice] || r.descrizione || "")}<br>
+        Ordinati ${r.ordinata} · prelevati <b>${r.prelevata}</b>${r.annullata ? " · ANNULLATA" : ""}</div>`).join("")}
+    </details>`).join("") + `<button class="btn gray" onclick="disegna()">Chiudi elenco</button>`;
 }
 // ordine reparto sbagliato: chiuso con motivo ANNULLATO, resta nello storico. Ordini uniti: si chiede per ognuno, così si annulla solo quello sbagliato
 async function annulla(i) {
